@@ -696,6 +696,84 @@ Range(5, 15, true)
 	}
 }
 
+func TestFunctionDefinition(t *testing.T) {
+	input := `
+def greet(name: string): string
+  "Hello, #{name}!"
+end
+
+def add_numbers(x: int, y: int): int
+  x + y
+end
+
+def process(x, y: string, z: int): boolean
+  true
+end
+
+def one_line(): int 42 end
+`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 4 {
+		t.Fatalf("program.Statements does not contain 4 statements. got=%d",
+			len(program.Statements))
+	}
+
+	tests := []struct {
+		expectedName   string
+		expectedParams int
+		hasReturnType  bool
+	}{
+		{"greet", 1, true},
+		{"add_numbers", 2, true},
+		{"process", 3, true},
+		{"one_line", 0, true},
+	}
+
+	for i, tt := range tests {
+		stmt := program.Statements[i]
+		if !testFunctionStatement(t, stmt, tt.expectedName, tt.expectedParams, tt.hasReturnType) {
+			return
+		}
+	}
+}
+
+func testFunctionStatement(t *testing.T, stmt ast.Statement, name string, paramCount int, hasReturnType bool) bool {
+	exprStmt, ok := stmt.(*ast.ExpressionStatement)
+	if !ok {
+		t.Errorf("stmt not *ast.ExpressionStatement. got=%T", stmt)
+		return false
+	}
+
+	function, ok := exprStmt.Expression.(*ast.FunctionLiteral)
+	if !ok {
+		t.Errorf("stmt.Expression not *ast.FunctionLiteral. got=%T", exprStmt.Expression)
+		return false
+	}
+
+	if function.Name.Value != name {
+		t.Errorf("function name not '%s'. got=%s", name, function.Name.Value)
+		return false
+	}
+
+	if len(function.Parameters) != paramCount {
+		t.Errorf("function %s has wrong number of parameters. want %d, got=%d",
+			name, paramCount, len(function.Parameters))
+		return false
+	}
+
+	if hasReturnType && function.ReturnType == nil {
+		t.Errorf("function %s should have return type but got nil", name)
+		return false
+	}
+
+	return true
+}
+
 func checkParserErrors(t *testing.T, p *Parser) {
 	errors := p.Errors()
 	if len(errors) == 0 {
@@ -757,4 +835,178 @@ func testStringLiteral(t *testing.T, sl ast.Expression, value string) bool {
 	}
 
 	return true
+}
+
+// TestStringInterpolation tests parsing of strings with JavaScript-style interpolation
+func TestStringInterpolation(t *testing.T) {
+	input := `
+name = "Alice"
+age = 30
+message = "Hello, my name is ${name} and I am ${age} years old"
+greeting = "Welcome, ${name}!"
+complex = "The result is ${age * 2 + 5}"
+`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 5 {
+		t.Fatalf("program.Statements does not contain 5 statements. got=%d",
+			len(program.Statements))
+	}
+
+	tests := []struct {
+		expectedIdentifier string
+	}{
+		{"name"},
+		{"age"},
+		{"message"},
+		{"greeting"},
+		{"complex"},
+	}
+
+	for i, tt := range tests {
+		stmt := program.Statements[i]
+		if !testAssignmentStatement(t, stmt, tt.expectedIdentifier) {
+			return
+		}
+	}
+}
+
+func testAssignmentStatement(t *testing.T, s ast.Statement, name string) bool {
+	expStmt, ok := s.(*ast.ExpressionStatement)
+	if !ok {
+		t.Errorf("s not *ast.ExpressionStatement. got=%T", s)
+		return false
+	}
+
+	assignment, ok := expStmt.Expression.(*ast.AssignmentExpression)
+	if !ok {
+		t.Errorf("expStmt.Expression not *ast.AssignmentExpression. got=%T", expStmt.Expression)
+		return false
+	}
+
+	if assignment.Name.Value != name {
+		t.Errorf("assignment.Name.Value not '%s'. got=%s", name, assignment.Name.Value)
+		return false
+	}
+
+	if assignment.Name.TokenLiteral() != name {
+		t.Errorf("assignment.Name.TokenLiteral() not '%s'. got=%s", name, assignment.Name.TokenLiteral())
+		return false
+	}
+
+	return true
+}
+
+// TestStringInterpolationParsing tests the parsing of string interpolation expressions
+func TestStringInterpolationParsing(t *testing.T) {
+	tests := []struct {
+		input           string
+		expectedParts   []string
+		expectedExprNum int
+	}{
+		{`"Hello, ${name}!"`, []string{"Hello, ", "!"}, 1},
+		{`"The sum is ${a + b}"`, []string{"The sum is ", ""}, 1},
+		{`"${greeting}, ${name}!"`, []string{"", ", ", "!"}, 2},
+		{`"Result: ${x * (y + z)}"`, []string{"Result: ", ""}, 1},
+		{`"Nested ${outer}"`, []string{"Nested ", ""}, 1},
+	}
+
+	for i, tt := range tests {
+		l := lexer.New(tt.input)
+		p := New(l)
+		program := p.ParseProgram()
+		checkParserErrors(t, p)
+
+		if len(program.Statements) != 1 {
+			t.Fatalf("test[%d] - program.Statements does not contain 1 statement. got=%d",
+				i, len(program.Statements))
+		}
+
+		stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+		if !ok {
+			t.Fatalf("test[%d] - program.Statements[0] is not *ast.ExpressionStatement. got=%T",
+				i, program.Statements[0])
+		}
+
+		interpolation, ok := stmt.Expression.(*ast.StringInterpolationLiteral)
+		if !ok {
+			t.Fatalf("test[%d] - exp not *ast.StringInterpolationLiteral. got=%T",
+				i, stmt.Expression)
+		}
+
+		if len(interpolation.Parts) != len(tt.expectedParts) {
+			t.Fatalf("test[%d] - interpolation has wrong number of parts. expected=%d, got=%d",
+				i, len(tt.expectedParts), len(interpolation.Parts))
+		}
+
+		for j, expectedPart := range tt.expectedParts {
+			if interpolation.Parts[j] != expectedPart {
+				t.Errorf("test[%d] - interpolation.Parts[%d] wrong. expected=%q, got=%q",
+					i, j, expectedPart, interpolation.Parts[j])
+			}
+		}
+
+		if len(interpolation.Expressions) != tt.expectedExprNum {
+			t.Fatalf("test[%d] - interpolation has wrong number of expressions. expected=%d, got=%d",
+				i, tt.expectedExprNum, len(interpolation.Expressions))
+		}
+	}
+}
+
+// TestBasicStringInterpolation tests a simpler case of string interpolation
+func TestBasicStringInterpolation(t *testing.T) {
+	input := `"Hello, ${name}!"`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("program.Statements does not contain 1 statement. got=%d",
+			len(program.Statements))
+	}
+
+	stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf("program.Statements[0] is not *ast.ExpressionStatement. got=%T",
+			program.Statements[0])
+	}
+
+	interpolation, ok := stmt.Expression.(*ast.StringInterpolationLiteral)
+	if !ok {
+		t.Fatalf("exp not *ast.StringInterpolationLiteral. got=%T", stmt.Expression)
+	}
+
+	if len(interpolation.Parts) != 2 {
+		t.Fatalf("interpolation has wrong number of parts. expected=2, got=%d",
+			len(interpolation.Parts))
+	}
+
+	expectedParts := []string{"Hello, ", "!"}
+	for i, expectedPart := range expectedParts {
+		if interpolation.Parts[i] != expectedPart {
+			t.Errorf("interpolation.Parts[%d] wrong. expected=%q, got=%q",
+				i, expectedPart, interpolation.Parts[i])
+		}
+	}
+
+	if len(interpolation.Expressions) != 1 {
+		t.Fatalf("interpolation has wrong number of expressions. expected=1, got=%d",
+			len(interpolation.Expressions))
+	}
+
+	ident, ok := interpolation.Expressions[0].(*ast.Identifier)
+	if !ok {
+		t.Fatalf("expression is not *ast.Identifier. got=%T",
+			interpolation.Expressions[0])
+	}
+
+	if ident.Value != "name" {
+		t.Errorf("ident.Value not %s. got=%s", "name", ident.Value)
+	}
 }

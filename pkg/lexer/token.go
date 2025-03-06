@@ -79,25 +79,26 @@ const (
 	STRUCT   = "STRUCT"   // 'struct' keyword for struct definitions
 	END      = "END"      // 'end' keyword to close blocks like struct definitions
 	LET      = "LET"      // 'let' keyword for variable declarations
+	DEF      = "DEF"      // 'def' keyword for function definitions
 )
 
-// Keywords map associates keyword strings with their corresponding token types.
-// This map is used to determine if an identifier is actually a keyword.
-// For example, when the lexer encounters "func", it checks this map to see
-// if it should categorize it as an IDENT or FUNCTION token.
+// keywords maps string keywords to their token types
 var keywords = map[string]TokenType{
-	"def":      FUNCTION,
-	"true":      TRUE,
-	"false":     FALSE,
-	"if":        IF,
-	"else":      ELSE,
-	"elsif":     ELSIF,
-	"return":    RETURN,
-	"class":     CLASS,
-	"prop":      PROP,
-	"nil":       NIL,
-	"struct":    STRUCT,
-	"end":       END,
+	"fn":      FUNCTION,
+	"def":     DEF,
+	"let":     LET,
+	"true":    TRUE,
+	"false":   FALSE,
+	"if":      IF,
+	"else":    ELSE,
+	"elsif":   ELSIF,
+	"return":  RETURN,
+	"class":   CLASS,
+	"nil":     NIL,
+	"end":     END,
+	"struct":  STRUCT,
+	"prop":    PROP,
+	"Range":   IDENT, // Range constructor is treated as an identifier
 }
 
 // LookupIdent checks if the given identifier is a keyword.

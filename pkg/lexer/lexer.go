@@ -1,6 +1,7 @@
 package lexer
 
 import (
+	"bytes"
 	"unicode"
 	"unicode/utf8"
 )
@@ -22,6 +23,7 @@ type Lexer struct {
 	ch           rune   // current character under examination
 	line         int    // current line number for error reporting
 	column       int    // current column number for error reporting
+	tokens       []Token  // to store tokens for debugging
 }
 
 // New creates a new Lexer for the provided input string.
@@ -277,30 +279,78 @@ func (l *Lexer) readNumber() Token {
 	return Token{Type: INT, Literal: literal, Line: l.line, Column: l.column}
 }
 
-// readString reads a string literal from the input.
-// String literals are enclosed in either single quotes (') or double quotes (").
-// The function handles escape sequences for the closing quote.
+// readString reads a string literal, handling escape sequences and interpolation.
+// In Vibe, string literals are enclosed in double quotes.
+// String interpolation is supported using ${expression} syntax.
 func (l *Lexer) readString() string {
-	// Store the quote character (either " or ')
-	quote := l.ch
-	l.readChar() // Skip the opening quote
-	position := l.position
+	var out bytes.Buffer
 
-	for l.ch != quote && l.ch != 0 {
-		// Handle escape sequences
-		if l.ch == '\\' && l.peekChar() == quote {
-			l.readChar() // Skip the backslash
+	// Skip the opening quote
+	l.readChar()
+
+	for {
+		// Handle string termination
+		if l.ch == '"' || l.ch == 0 {
+			break
 		}
+
+		// Handle escape sequences
+		if l.ch == '\\' {
+			l.readChar() // consume the backslash
+			switch l.ch {
+			case 'n':
+				out.WriteRune('\n')
+			case 't':
+				out.WriteRune('\t')
+			case 'r':
+				out.WriteRune('\r')
+			case '\\':
+				out.WriteRune('\\')
+			case '"':
+				out.WriteRune('"')
+			default:
+				// For unsupported escape sequences, just output the character
+				out.WriteRune('\\')
+				out.WriteRune(l.ch)
+			}
+			l.readChar()
+			continue
+		}
+
+		// Check for string interpolation with ${
+		if l.ch == '$' && l.peekChar() == '{' {
+			// Mark the string as having interpolation
+			out.WriteString("${")
+			l.readChar() // consume $
+			l.readChar() // consume {
+
+			// Keep track of nesting level for braces
+			nestLevel := 1
+			for nestLevel > 0 && l.ch != 0 {
+				if l.ch == '{' {
+					nestLevel++
+				} else if l.ch == '}' {
+					nestLevel--
+					if nestLevel == 0 {
+						break // Found the closing brace
+					}
+				}
+
+				out.WriteRune(l.ch)
+				l.readChar()
+			}
+
+			// Close the interpolation
+			out.WriteRune('}')
+			l.readChar() // consume the closing brace
+			continue
+		}
+
+		out.WriteRune(l.ch)
 		l.readChar()
 	}
 
-	if l.ch == 0 {
-		// Unterminated string
-		return l.input[position:l.position]
-	}
-
-	str := l.input[position:l.position]
-	return str
+	return out.String()
 }
 
 // isLetter returns true if the character is a letter or underscore.

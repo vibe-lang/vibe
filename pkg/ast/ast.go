@@ -693,3 +693,18 @@ func (rc *RangeCallExpression) String() string {
 	out.WriteString(")")
 	return out.String()
 }
+
+// StringInterpolationLiteral represents a string with interpolated expressions.
+// Example: "Hello, ${name}!"
+type StringInterpolationLiteral struct {
+	Token       lexer.Token  // the STRING token
+	Value       string       // The raw string value including ${...} placeholders
+	Expressions []Expression // The parsed expressions within ${...} placeholders
+	Parts       []string     // The string parts between interpolations
+}
+
+func (sil *StringInterpolationLiteral) expressionNode() {}
+func (sil *StringInterpolationLiteral) TokenLiteral() string { return sil.Token.Literal }
+func (sil *StringInterpolationLiteral) String() string {
+	return "\"" + sil.Value + "\""
+}

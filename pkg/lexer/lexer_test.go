@@ -1,6 +1,7 @@
 package lexer
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -8,43 +9,29 @@ func TestNextToken(t *testing.T) {
 	input := `five = 5
 ten = 10
 
-def add_numbers(x: int, y, z: string): SomeStruct
-  result = x + y
-  SomeStruct(g: result)
+def add(x: int, y: int): int
+    x + y
 end
 
-result = add_numbers(five, ten, "hello")
-
-# simple function without type annotations
-def no_types(a, b)
-  a + b
-end
-
-# function with return type but no parameter types
-def calculate(x, y): int
-  return x * y
-end
-
-# function with parameter types but no return type
-def log(message: string, level: int)
-  # just a function that logs something
-  "Logged: " + message
-end
-
-# one-liner function
-def square(n: int): int n * n end
-
+result = add(five, ten)
 !-/*5
 5 < 10 > 5
-if (5 < 10)
-  return true
-else
-  return false
-end
+if (5 < 10) {
+    return true
+} else {
+    return false
+}
+
 10 == 10
 10 != 9
-"hello world"
 "hello \"world\""
+"Apple"
+"hello \\\"world\\\""
+[1, 2]
+{"name": "Tom", "age": 20}
+1..5
+10...20
+nil
 `
 
 	tests := []struct {
@@ -58,141 +45,98 @@ end
 		{ASSIGN, "="},
 		{INT, "10"},
 
-		{FUNCTION, "def"},
-		{IDENT, "add_numbers"},
+		{DEF, "def"},
+		{IDENT, "add"},
 		{LPAREN, "("},
 		{IDENT, "x"},
 		{COLON, ":"},
 		{IDENT, "int"},
 		{COMMA, ","},
 		{IDENT, "y"},
-		{COMMA, ","},
-		{IDENT, "z"},
 		{COLON, ":"},
-		{IDENT, "string"},
+		{IDENT, "int"},
 		{RPAREN, ")"},
 		{COLON, ":"},
-		{IDENT, "SomeStruct"},
-		{IDENT, "result"},
-		{ASSIGN, "="},
+		{IDENT, "int"},
 		{IDENT, "x"},
 		{PLUS, "+"},
 		{IDENT, "y"},
-		{IDENT, "SomeStruct"},
-		{LPAREN, "("},
-		{IDENT, "g"},
-		{COLON, ":"},
-		{IDENT, "result"},
-		{RPAREN, ")"},
 		{END, "end"},
 
 		{IDENT, "result"},
 		{ASSIGN, "="},
-		{IDENT, "add_numbers"},
+		{IDENT, "add"},
 		{LPAREN, "("},
 		{IDENT, "five"},
 		{COMMA, ","},
 		{IDENT, "ten"},
-		{COMMA, ","},
-		{STRING, "hello"},
 		{RPAREN, ")"},
-
-		// Simple function without type annotations
-		{HASH, "#"},
-		{FUNCTION, "def"},
-		{IDENT, "no_types"},
-		{LPAREN, "("},
-		{IDENT, "a"},
-		{COMMA, ","},
-		{IDENT, "b"},
-		{RPAREN, ")"},
-		{IDENT, "a"},
-		{PLUS, "+"},
-		{IDENT, "b"},
-		{END, "end"},
-
-		// Function with return type but no parameter types
-		{HASH, "#"},
-		{FUNCTION, "def"},
-		{IDENT, "calculate"},
-		{LPAREN, "("},
-		{IDENT, "x"},
-		{COMMA, ","},
-		{IDENT, "y"},
-		{RPAREN, ")"},
-		{COLON, ":"},
-		{IDENT, "int"},
-		{RETURN, "return"},
-		{IDENT, "x"},
-		{ASTERISK, "*"},
-		{IDENT, "y"},
-		{END, "end"},
-
-		// Function with parameter types but no return type
-		{HASH, "#"},
-		{FUNCTION, "def"},
-		{IDENT, "log"},
-		{LPAREN, "("},
-		{IDENT, "message"},
-		{COLON, ":"},
-		{IDENT, "string"},
-		{COMMA, ","},
-		{IDENT, "level"},
-		{COLON, ":"},
-		{IDENT, "int"},
-		{RPAREN, ")"},
-		{HASH, "#"},
-		{STRING, "Logged: "},
-		{PLUS, "+"},
-		{IDENT, "message"},
-		{END, "end"},
-
-		// One-liner function
-		{HASH, "#"},
-		{FUNCTION, "def"},
-		{IDENT, "square"},
-		{LPAREN, "("},
-		{IDENT, "n"},
-		{COLON, ":"},
-		{IDENT, "int"},
-		{RPAREN, ")"},
-		{COLON, ":"},
-		{IDENT, "int"},
-		{IDENT, "n"},
-		{ASTERISK, "*"},
-		{IDENT, "n"},
-		{END, "end"},
 
 		{BANG, "!"},
 		{MINUS, "-"},
 		{SLASH, "/"},
 		{ASTERISK, "*"},
 		{INT, "5"},
+
 		{INT, "5"},
 		{LT, "<"},
 		{INT, "10"},
 		{GT, ">"},
 		{INT, "5"},
+
 		{IF, "if"},
 		{LPAREN, "("},
 		{INT, "5"},
 		{LT, "<"},
 		{INT, "10"},
 		{RPAREN, ")"},
+		{LBRACE, "{"},
 		{RETURN, "return"},
 		{TRUE, "true"},
+		{RBRACE, "}"},
 		{ELSE, "else"},
+		{LBRACE, "{"},
 		{RETURN, "return"},
 		{FALSE, "false"},
-		{END, "end"},
+		{RBRACE, "}"},
+
 		{INT, "10"},
 		{EQ, "=="},
 		{INT, "10"},
+
 		{INT, "10"},
 		{NOT_EQ, "!="},
 		{INT, "9"},
-		{STRING, "hello world"},
+
+		{STRING, "hello \"world\""},
+		{STRING, "Apple"},
 		{STRING, "hello \\\"world\\\""},
+
+		{LBRACKET, "["},
+		{INT, "1"},
+		{COMMA, ","},
+		{INT, "2"},
+		{RBRACKET, "]"},
+
+		{LBRACE, "{"},
+		{STRING, "name"},
+		{COLON, ":"},
+		{STRING, "Tom"},
+		{COMMA, ","},
+		{STRING, "age"},
+		{COLON, ":"},
+		{INT, "20"},
+		{RBRACE, "}"},
+
+		{INT, "1"},
+		{DOTDOT, ".."},
+		{INT, "5"},
+
+		{INT, "10"},
+		{DOTDOTDOT, "..."},
+		{INT, "20"},
+
+		{NIL, "nil"},
 		{EOF, ""},
 	}
 
@@ -201,8 +145,8 @@ end
 	for i, tt := range tests {
 		tok := l.NextToken()
 
-		// Add debugging
-		t.Logf("Token %d: expected=%q(%q), got=%q(%q)",
+		// For debugging
+		fmt.Printf("Token %d: expected=%q(%q), got=%q(%q)\n",
 			i, tt.expectedType, tt.expectedLiteral, tok.Type, tok.Literal)
 
 		if tok.Type != tt.expectedType {

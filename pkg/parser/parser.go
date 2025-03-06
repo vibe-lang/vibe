@@ -117,6 +117,8 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.IF, p.parseIfExpression)
 	p.registerPrefix(lexer.CLASS, p.parseClassLiteral)
 	p.registerPrefix(lexer.LBRACKET, p.parseArrayLiteral)
+	p.registerPrefix(lexer.STRUCT, p.parseCompoundLiteral)
+	p.registerPrefix(lexer.DEF, p.parseFunctionLiteral)
 
 	// Register infix parse functions
 	p.infixParseFns = make(map[lexer.TokenType]infixParseFn)
@@ -510,15 +512,86 @@ func (p *Parser) parseFloatLiteral() ast.Expression {
 	return lit
 }
 
-// parseStringLiteral parses a string literal.
-// String literals are sequences of characters enclosed in quotes.
-//
-// Example Vibe code:
-//
-//	"hello world"
-//	'single quotes'
+// parseStringLiteral parses a string literal and handles interpolation.
+// In Vibe, string literals are enclosed in double quotes.
+// String interpolation is supported using ${expression} syntax.
 func (p *Parser) parseStringLiteral() ast.Expression {
-	return &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+	str := &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+
+	// Check if the string contains any interpolation (marked by ${)
+	if strings.Contains(str.Value, "${") {
+		return p.parseStringInterpolation(str)
+	}
+
+	return str
+}
+
+// parseStringInterpolation handles string literals with interpolation.
+// It parses the interpolated expressions and creates a StringInterpolationLiteral.
+func (p *Parser) parseStringInterpolation(str *ast.StringLiteral) ast.Expression {
+	interpolation := &ast.StringInterpolationLiteral{
+		Token: str.Token,
+		Value: str.Value,
+		Expressions: []ast.Expression{},
+		Parts: []string{},
+	}
+
+	// Example: "Hello, ${name}!"
+	// We need to extract "Hello, " and "!" as parts, and "name" as an expression
+
+	// Simple regex-like approach for basic cases
+	value := str.Value
+	for {
+		// Find the next ${
+		start := strings.Index(value, "${")
+		if start == -1 {
+			// No more interpolations
+			if len(value) > 0 {
+				interpolation.Parts = append(interpolation.Parts, value)
+			}
+			break
+		}
+
+		// Add the text before the interpolation
+		if start > 0 {
+			interpolation.Parts = append(interpolation.Parts, value[:start])
+		} else {
+			// If the string starts with an interpolation, add an empty part
+			interpolation.Parts = append(interpolation.Parts, "")
+		}
+
+		// Find the closing }
+		end := strings.Index(value[start:], "}") + start
+		if end <= start {
+			// Missing closing brace
+			p.addError("unterminated string interpolation")
+			break
+		}
+
+		// Extract the variable name/expression
+		exprText := value[start+2:end]
+
+		// For now, just handle simple identifiers
+		expr := &ast.Identifier{
+			Token: lexer.Token{
+				Type:    lexer.IDENT,
+				Literal: exprText,
+			},
+			Value: exprText,
+		}
+		interpolation.Expressions = append(interpolation.Expressions, expr)
+
+		// Move to the rest of the string
+		if end+1 < len(value) {
+			value = value[end+1:]
+		} else {
+			// End of string
+			interpolation.Parts = append(interpolation.Parts, "")
+			break
+		}
+	}
+
+	return interpolation
 }
 
 // parseBooleanLiteral parses a boolean literal.
@@ -637,16 +710,85 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 	return nil
 }
 
-// parseFunctionLiteral parses a function definition.
-// Functions in Vibe can be named or anonymous and have optional type annotations.
+// parseFunctionLiteral parses a function literal or definition.
+// Supports both anonymous functions (fn) and named functions (def).
 //
 // Example Vibe code:
 //
-//	func add(x: Int, y: Int): Int { return x + y; }
-//	func() { puts("Hello!"); }
+//	fn(x, y) { x + y }
+//	def greet(name: string): string
+//	  "Hello, #{name}!"
+//	end
 func (p *Parser) parseFunctionLiteral() ast.Expression {
-	// Implement function literal parsing
-	return nil
+	lit := &ast.FunctionLiteral{Token: p.curToken}
+	isDef := p.curTokenIs(lexer.DEF)
+
+	// For functions defined with 'def', we expect a name
+	if isDef {
+		// Expect the next token to be the function name
+		if !p.expectPeek(lexer.IDENT) {
+			return nil
+		}
+
+		lit.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+	}
+
+	// Parse parameters
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil
+	}
+
+	lit.Parameters = p.parseFunctionParameters()
+
+	// Check for return type annotation
+	if p.peekTokenIs(lexer.COLON) {
+		p.nextToken() // consume the colon
+
+		// Parse the return type annotation
+		if !p.expectPeek(lexer.IDENT) {
+			return nil
+		}
+
+		returnType := &ast.TypeAnnotation{
+			Token: p.curToken,
+			Name:  p.curToken.Literal,
+		}
+		lit.ReturnType = returnType
+	}
+
+	// Handle the function body
+	if isDef {
+		// For def functions, we expect a block of statements until 'end'
+		lit.Body = &ast.BlockStatement{
+			Token:      p.curToken,
+			Statements: []ast.Statement{},
+		}
+
+		p.nextToken() // move past the return type or parameters
+
+		// Parse statements until we reach 'end'
+		for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
+			stmt := p.parseStatement()
+			if stmt != nil {
+				lit.Body.Statements = append(lit.Body.Statements, stmt)
+			}
+			p.nextToken()
+		}
+
+		if !p.curTokenIs(lexer.END) {
+			p.addError("expected 'end' to close function definition")
+			return nil
+		}
+	} else {
+		// For fn functions, we expect a block delimited by braces
+		if !p.expectPeek(lexer.LBRACE) {
+			return nil
+		}
+
+		lit.Body = p.parseBlockStatement()
+	}
+
+	return lit
 }
 
 // parseIfExpression parses an if expression.
@@ -1086,4 +1228,74 @@ func (p *Parser) parseRangeExpression(left ast.Expression) ast.Expression {
 	}
 
 	return expr
+}
+
+// parseFunctionParameters parses the parameter list for a function.
+// It handles both simple parameters and parameters with type annotations.
+func (p *Parser) parseFunctionParameters() []*ast.Identifier {
+	identifiers := []*ast.Identifier{}
+
+	// Empty parameter list
+	if p.peekTokenIs(lexer.RPAREN) {
+		p.nextToken()
+		return identifiers
+	}
+
+	p.nextToken()
+
+	// First parameter
+	ident := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+	identifiers = append(identifiers, ident)
+
+	// Check for type annotation
+	if p.peekTokenIs(lexer.COLON) {
+		p.nextToken() // consume the colon
+		if !p.expectPeek(lexer.IDENT) {
+			return nil
+		}
+		// Skip past the type name for now, we're just collecting parameter identifiers
+		// In a more complete implementation, we would capture the type annotation here
+	}
+
+	// Additional parameters
+	for p.peekTokenIs(lexer.COMMA) {
+		p.nextToken() // consume the comma
+		p.nextToken() // move to the parameter name
+
+		ident := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+		identifiers = append(identifiers, ident)
+
+		// Check for type annotation
+		if p.peekTokenIs(lexer.COLON) {
+			p.nextToken() // consume the colon
+			if !p.expectPeek(lexer.IDENT) {
+				return nil
+			}
+			// Skip past the type name
+		}
+	}
+
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil
+	}
+
+	return identifiers
+}
+
+// parseBlockStatement parses a block of statements enclosed in braces.
+// In Vibe, block statements are used in functions, if statements, etc.
+func (p *Parser) parseBlockStatement() *ast.BlockStatement {
+	block := &ast.BlockStatement{Token: p.curToken, Statements: []ast.Statement{}}
+
+	p.nextToken()
+
+	for !p.curTokenIs(lexer.RBRACE) && !p.curTokenIs(lexer.EOF) {
+		stmt := p.parseStatement()
+		if stmt != nil {
+			block.Statements = append(block.Statements, stmt)
+		}
+		p.nextToken()
+	}
+
+	return block
 }
