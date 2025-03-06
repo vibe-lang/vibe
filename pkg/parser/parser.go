@@ -43,38 +43,35 @@ type (
 )
 
 // Precedence levels for operators, used to determine the order of operations.
-// Higher values indicate higher precedence (tighter binding).
 const (
-	_ int = iota
-	LOWEST       // Default lowest precedence
-	ASSIGN       // =
-	EQUALS       // ==, !=
-	LESSGREATER  // >, <, >=, <=
-	SUM          // +, -
-	PRODUCT      // *, /, %
-	PREFIX       // -X, !X
-	CALL         // myFunction(X)
-	RANGE        // .., ...
+	LOWEST  = 1 // Lowest precedence (evaluated last)
+	EQUALS  = 2 // ==, !=
+	COMPARE = 3 // <, >, <=, >=
+	SUM     = 4 // +, -
+	PRODUCT = 5 // *, /
+	PREFIX  = 6 // -X, !X
+	CALL    = 7 // myFunction(X)
+	INDEX   = 8 // array[index]
+	DOT     = 9 // obj.property (highest precedence)
 )
 
-// Precedence map associates token types with their precedence levels.
-// This is used to resolve operator precedence when parsing expressions.
+// precedences maps token types to their precedence levels.
 var precedences = map[lexer.TokenType]int{
-	lexer.ASSIGN:    ASSIGN,
-	lexer.EQ:        EQUALS,
-	lexer.NOT_EQ:    EQUALS,
-	lexer.LT:        LESSGREATER,
-	lexer.GT:        LESSGREATER,
-	lexer.LTE:       LESSGREATER,
-	lexer.GTE:       LESSGREATER,
-	lexer.PLUS:      SUM,
-	lexer.MINUS:     SUM,
-	lexer.SLASH:     PRODUCT,
-	lexer.ASTERISK:  PRODUCT,
-	lexer.MODULO:    PRODUCT,
-	lexer.LPAREN:    CALL,
-	lexer.DOTDOT:    RANGE,
-	lexer.DOTDOTDOT: RANGE,
+	lexer.EQ:       EQUALS,
+	lexer.NOT_EQ:   EQUALS,
+	lexer.LT:       COMPARE,
+	lexer.GT:       COMPARE,
+	lexer.LTE:      COMPARE,
+	lexer.GTE:      COMPARE,
+	lexer.PLUS:     SUM,
+	lexer.MINUS:    SUM,
+	lexer.SLASH:    PRODUCT,
+	lexer.ASTERISK: PRODUCT,
+	lexer.LPAREN:   CALL,
+	lexer.DOT:      DOT,
+	lexer.LBRACKET: INDEX,
+	lexer.DOTDOT:   LOWEST, // Range operator precedence
+	lexer.DOTDOTDOT: LOWEST, // Range operator precedence
 }
 
 // New creates a new parser for the given lexer.
@@ -119,6 +116,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.LBRACKET, p.parseArrayLiteral)
 	p.registerPrefix(lexer.STRUCT, p.parseCompoundLiteral)
 	p.registerPrefix(lexer.DEF, p.parseFunctionLiteral)
+	p.registerPrefix(lexer.ASSIGN, p.parseAssignError)
 
 	// Register infix parse functions
 	p.infixParseFns = make(map[lexer.TokenType]infixParseFn)
@@ -134,9 +132,11 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerInfix(lexer.LTE, p.parseInfixExpression)
 	p.registerInfix(lexer.GTE, p.parseInfixExpression)
 	p.registerInfix(lexer.LPAREN, p.parseCallExpression)
-	p.registerInfix(lexer.ASSIGN, p.parseAssignmentExpression)
+	p.registerInfix(lexer.DOT, p.parseDotExpression)
 	p.registerInfix(lexer.DOTDOT, p.parseRangeExpression)
 	p.registerInfix(lexer.DOTDOTDOT, p.parseRangeExpression)
+	p.registerInfix(lexer.LBRACKET, p.parseIndexExpression)
+	p.registerInfix(lexer.ASSIGN, p.parseAssignmentExpression)
 
 	return p
 }
@@ -178,6 +178,12 @@ func (p *Parser) ParseProgram() *ast.Program {
 	program.Statements = []ast.Statement{}
 
 	for !p.curTokenIs(lexer.EOF) {
+		// Debug: print position
+		fmt.Printf("Token at %d:%d: %s (%s), next: %s (%s)\n",
+			p.curToken.Line, p.curToken.Column,
+			p.curToken.Type, p.curToken.Literal,
+			p.peekToken.Type, p.peekToken.Literal)
+
 		stmt := p.parseStatement()
 		if stmt != nil {
 			program.Statements = append(program.Statements, stmt)
@@ -189,16 +195,18 @@ func (p *Parser) ParseProgram() *ast.Program {
 }
 
 // parseStatement parses a statement.
-// It dispatches to the appropriate parsing function based on the current token.
+// Statements in Vibe include let statements, return statements, and expression statements.
 func (p *Parser) parseStatement() ast.Statement {
+	fmt.Printf("parseStatement: curToken=%s(%s), peekToken=%s(%s)\n",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
 	switch p.curToken.Type {
 	case lexer.RETURN:
 		return p.parseReturnStatement()
 	case lexer.STRUCT:
 		return p.parseStructStatement()
-	case lexer.SEMICOLON:
-		// Skip semicolons
-		return nil
+	case lexer.FOR:
+		return p.parseForStatement()
 	default:
 		return p.parseExpressionStatement()
 	}
@@ -237,8 +245,61 @@ func (p *Parser) parseReturnStatement() *ast.ReturnStatement {
 //	x + 5;
 //	foo();
 func (p *Parser) parseExpressionStatement() *ast.ExpressionStatement {
+	fmt.Printf("parseExpressionStatement: curToken=%s(%s), peekToken=%s(%s)\n",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
 	stmt := &ast.ExpressionStatement{Token: p.curToken}
-	stmt.Expression = p.parseExpression(LOWEST)
+
+	// Special case for typed array assignments like "h: int[] = [1, 2, 3]"
+	if p.curTokenIs(lexer.IDENT) && p.peekTokenIs(lexer.COLON) {
+		fmt.Printf("  Found typed assignment pattern\n")
+		ident := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+		p.nextToken() // consume the identifier
+		p.nextToken() // consume the colon
+
+		// Parse the type annotation
+		typeAnnotation := p.parseTypeAnnotation()
+		fmt.Printf("  After type annotation: curToken=%s(%s), peekToken=%s(%s)\n",
+			p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
+		// Check for assignment
+		if p.peekTokenIs(lexer.ASSIGN) {
+			fmt.Printf("  Found assignment after type annotation\n")
+			p.nextToken() // move to the equals sign
+
+			// Create a typed identifier
+			typedIdent := &ast.TypedIdentifier{
+				Token: ident.Token,
+				Identifier: ident,
+				Type: typeAnnotation,
+			}
+
+			// Create an assignment expression
+			assignment := &ast.AssignmentExpression{
+				Token: p.curToken,
+				Left: typedIdent,
+			}
+
+			p.nextToken() // consume the equals sign
+			fmt.Printf("  After consuming equals: curToken=%s(%s), peekToken=%s(%s)\n",
+				p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
+			assignment.Value = p.parseExpression(LOWEST)
+
+			stmt.Expression = assignment
+
+			// Optional semicolon
+			if p.peekTokenIs(lexer.SEMICOLON) {
+				p.nextToken()
+			}
+
+			return stmt
+		}
+	} else {
+		// Regular expression statement
+		stmt.Expression = p.parseExpression(LOWEST)
+	}
 
 	// Optional semicolon
 	if p.peekTokenIs(lexer.SEMICOLON) {
@@ -260,6 +321,9 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 	// Check for assignment expression
 	if p.peekTokenIs(lexer.ASSIGN) {
 		if _, ok := leftExp.(*ast.Identifier); ok {
+			return p.parseAssignmentExpression(leftExp)
+		}
+		if _, ok := leftExp.(*ast.TypedIdentifier); ok {
 			return p.parseAssignmentExpression(leftExp)
 		}
 	}
@@ -643,7 +707,6 @@ func (p *Parser) expectPeek(t lexer.TokenType) bool {
 }
 
 // peekPrecedence returns the precedence of the next token.
-// If the token has no defined precedence, returns LOWEST.
 func (p *Parser) peekPrecedence() int {
 	if p, ok := precedences[p.peekToken.Type]; ok {
 		return p
@@ -652,7 +715,6 @@ func (p *Parser) peekPrecedence() int {
 }
 
 // curPrecedence returns the precedence of the current token.
-// If the token has no defined precedence, returns LOWEST.
 func (p *Parser) curPrecedence() int {
 	if p, ok := precedences[p.curToken.Type]; ok {
 		return p
@@ -695,8 +757,17 @@ func (p *Parser) parsePrefixExpression() ast.Expression {
 //	1 + 2
 //	a == b
 func (p *Parser) parseInfixExpression(left ast.Expression) ast.Expression {
-	// Implement infix expression parsing
-	return nil
+	expr := &ast.InfixExpression{
+		Token:    p.curToken,
+		Operator: p.curToken.Literal,
+		Left:     left,
+	}
+
+	precedence := p.curPrecedence()
+	p.nextToken()
+	expr.Right = p.parseExpression(precedence)
+
+	return expr
 }
 
 // parseGroupedExpression parses expressions in parentheses.
@@ -706,8 +777,17 @@ func (p *Parser) parseInfixExpression(left ast.Expression) ast.Expression {
 //
 //	(1 + 2) * 3
 func (p *Parser) parseGroupedExpression() ast.Expression {
-	// Implement grouped expression parsing
-	return nil
+	p.nextToken() // Skip the opening parenthesis
+
+	// Parse the expression with lowest precedence (resets precedence chain)
+	exp := p.parseExpression(LOWEST)
+
+	// Expect closing parenthesis
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil
+	}
+
+	return exp
 }
 
 // parseFunctionLiteral parses a function literal or definition.
@@ -717,7 +797,7 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 //
 //	fn(x, y) { x + y }
 //	def greet(name: string): string
-//	  "Hello, #{name}!"
+//	  "Hello, ${name}!"
 //	end
 func (p *Parser) parseFunctionLiteral() ast.Expression {
 	lit := &ast.FunctionLiteral{Token: p.curToken}
@@ -796,7 +876,11 @@ func (p *Parser) parseFunctionLiteral() ast.Expression {
 //
 // Example Vibe code:
 //
-//	if x > 5 { return true; } else { return false; }
+//	if x > 5
+//	    return true
+//	else
+//	    return false
+//	end
 func (p *Parser) parseIfExpression() ast.Expression {
 	// Implement if expression parsing
 	return nil
@@ -952,6 +1036,11 @@ func (p *Parser) parseAssignmentExpression(name ast.Expression) ast.Expression {
 }
 
 // parseTypeAnnotation parses a type annotation.
+// This function handles various type annotations including:
+// - Simple types (e.g., 'int', 'string')
+// - Array types (e.g., 'int[]', 'string[]')
+// - Multi-dimensional array types (e.g., 'int[][]', 'string[][]')
+// - Compound types (e.g., '[int, string]')
 func (p *Parser) parseTypeAnnotation() ast.Expression {
 	// Check for compound type annotation like [int, string]
 	if p.curTokenIs(lexer.LBRACKET) {
@@ -960,21 +1049,34 @@ func (p *Parser) parseTypeAnnotation() ast.Expression {
 
 	// Simple type annotation
 	ident := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+	baseTypeName := ident.Value
+	dimensions := 0
 
-	// Check for array type annotation
-	if p.peekTokenIs(lexer.LBRACKET) && p.peekPeekTokenIs(lexer.RBRACKET) {
+	// Check for array type annotation (possibly multi-dimensional)
+	for p.peekTokenIs(lexer.LBRACKET) && p.peekPeekTokenIs(lexer.RBRACKET) {
 		p.nextToken() // consume the '['
 		p.nextToken() // consume the ']'
-
-		// Create an array type annotation
-		arrayType := &ast.ArrayTypeAnnotation{
-			Token:    ident.Token,
-			BaseType: ident,
-		}
-		return arrayType
+		dimensions++
 	}
 
-	return ident
+	// If we parsed array dimensions, create the appropriate type annotation
+	if dimensions > 0 {
+		typeName := baseTypeName
+		for i := 0; i < dimensions; i++ {
+			typeName += "[]"
+		}
+
+		return &ast.TypeAnnotation{
+			Token: ident.Token,
+			Name:  typeName,
+		}
+	}
+
+	// For simple types, return a TypeAnnotation
+	return &ast.TypeAnnotation{
+		Token: ident.Token,
+		Name:  baseTypeName,
+	}
 }
 
 // parseCompoundTypeAnnotation parses a compound type annotation like [int, string].
@@ -1207,25 +1309,10 @@ func (p *Parser) parseRangeExpression(left ast.Expression) ast.Expression {
 	// Determine if this is an inclusive or exclusive range
 	expr.Exclusive = p.curToken.Type == lexer.DOTDOTDOT
 
-	// Debug
-	fmt.Printf("Range expression: start=%v, token=%v, exclusive=%v\n",
-		left, p.curToken.Literal, expr.Exclusive)
-
 	precedence := p.curPrecedence()
 	p.nextToken()
 
-	// Debug
-	fmt.Printf("After nextToken: curToken=%v, literal=%v\n",
-		p.curToken.Type, p.curToken.Literal)
-
 	expr.End = p.parseExpression(precedence)
-
-	// Debug
-	if expr.End == nil {
-		fmt.Printf("Failed to parse end expression\n")
-	} else {
-		fmt.Printf("End expression: %T %v\n", expr.End, expr.End)
-	}
 
 	return expr
 }
@@ -1298,4 +1385,112 @@ func (p *Parser) parseBlockStatement() *ast.BlockStatement {
 	}
 
 	return block
+}
+
+// parseForStatement parses a for loop statement.
+// For loops in Vibe iterate over a collection (array, range, etc.).
+//
+// Example Vibe code:
+//
+//	for i in [1, 2, 3]
+//	  puts(i)
+//	end
+func (p *Parser) parseForStatement() *ast.ForLoop {
+	forLoop := &ast.ForLoop{Token: p.curToken}
+
+	// Expect iterator variable
+	if !p.expectPeek(lexer.IDENT) {
+		return nil
+	}
+
+	forLoop.Iterator = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+	// Expect 'in' keyword
+	if !p.expectPeek(lexer.IN) {
+		return nil
+	}
+
+	// Move to the collection expression
+	p.nextToken()
+
+	// Parse the collection to iterate over
+	forLoop.Collection = p.parseExpression(LOWEST)
+
+	// Parse the loop body
+	forLoop.Body = &ast.BlockStatement{Token: p.curToken}
+	forLoop.Body.Statements = []ast.Statement{}
+
+	// Skip any semicolons after the collection expression
+	if p.peekTokenIs(lexer.SEMICOLON) {
+		p.nextToken()
+	}
+
+	p.nextToken() // Move to the first token of the body
+
+	// Parse statements until we reach 'end'
+	for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
+		stmt := p.parseStatement()
+		if stmt != nil {
+			forLoop.Body.Statements = append(forLoop.Body.Statements, stmt)
+		}
+		p.nextToken()
+	}
+
+	if !p.curTokenIs(lexer.END) {
+		p.addError("expected 'end' to close for loop")
+		return nil
+	}
+
+	return forLoop
+}
+
+// parseDotExpression parses a dot expression for struct field access.
+// Example: person.name
+func (p *Parser) parseDotExpression(left ast.Expression) ast.Expression {
+	expr := &ast.DotExpression{
+		Token: p.curToken,
+		Left:  left,
+	}
+
+	// Move past the dot
+	p.nextToken()
+
+	// The right side should be an identifier (field name)
+	if !p.curTokenIs(lexer.IDENT) {
+		p.addError(fmt.Sprintf("expected identifier after dot, got %s", p.curToken.Type))
+		return nil
+	}
+
+	expr.Field = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+	return expr
+}
+
+// parseIndexExpression parses an index expression for array access.
+// Example: arr[0]
+func (p *Parser) parseIndexExpression(left ast.Expression) ast.Expression {
+	expr := &ast.IndexExpression{
+		Token: p.curToken,
+		Left:  left,
+	}
+
+	// Move past the [
+	p.nextToken()
+
+	// Parse the index expression
+	expr.Index = p.parseExpression(LOWEST)
+
+	// Expect closing ]
+	if !p.expectPeek(lexer.RBRACKET) {
+		return nil
+	}
+
+	return expr
+}
+
+// parseAssignError is a special function to provide better error messages when = is found as a prefix
+func (p *Parser) parseAssignError() ast.Expression {
+	msg := fmt.Sprintf("unexpected assignment operator. Did you mean to use a variable name before '='?")
+	p.errors = append(p.errors, fmt.Sprintf("[%d:%d] %s",
+		p.curToken.Line, p.curToken.Column, msg))
+	return nil
 }

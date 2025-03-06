@@ -16,11 +16,11 @@ end
 result = add(five, ten)
 !-/*5
 5 < 10 > 5
-if (5 < 10) {
+if (5 < 10)
     return true
-} else {
+else
     return false
-}
+end
 
 10 == 10
 10 != 9
@@ -28,7 +28,7 @@ if (5 < 10) {
 "Apple"
 "hello \\\"world\\\""
 [1, 2]
-{"name": "Tom", "age": 20}
+"Hello, ${name}!"
 1..5
 10...20
 nil
@@ -90,15 +90,12 @@ nil
 		{LT, "<"},
 		{INT, "10"},
 		{RPAREN, ")"},
-		{LBRACE, "{"},
 		{RETURN, "return"},
 		{TRUE, "true"},
-		{RBRACE, "}"},
 		{ELSE, "else"},
-		{LBRACE, "{"},
 		{RETURN, "return"},
 		{FALSE, "false"},
-		{RBRACE, "}"},
+		{END, "end"},
 
 		{INT, "10"},
 		{EQ, "=="},
@@ -118,15 +115,7 @@ nil
 		{INT, "2"},
 		{RBRACKET, "]"},
 
-		{LBRACE, "{"},
-		{STRING, "name"},
-		{COLON, ":"},
-		{STRING, "Tom"},
-		{COMMA, ","},
-		{STRING, "age"},
-		{COLON, ":"},
-		{INT, "20"},
-		{RBRACE, "}"},
+		{STRING, "Hello, ${name}!"},
 
 		{INT, "1"},
 		{DOTDOT, ".."},

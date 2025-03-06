@@ -70,47 +70,6 @@ func (p *Program) String() string {
 	return out.String()
 }
 
-// LetStatement represents a variable declaration statement in Vibe.
-// Example in Vibe code: `let x = 5;` or `let name: String = "John";`
-//
-// A LetStatement consists of:
-// - The 'let' token
-// - The identifier being declared
-// - An optional type annotation
-// - The value being assigned to the identifier
-type LetStatement struct {
-	Token lexer.Token     // the LET token
-	Name  *Identifier     // The variable name
-	Value Expression      // The expression that produces the value
-	Type  *TypeAnnotation // Optional type annotation (e.g., `: String`)
-}
-
-func (ls *LetStatement) statementNode() {}
-func (ls *LetStatement) TokenLiteral() string { return ls.Token.Literal }
-
-// String returns a string representation of the LetStatement.
-// Format: "let <name>: <type> = <value>;" or "let <name> = <value>;"
-func (ls *LetStatement) String() string {
-	var out bytes.Buffer
-
-	out.WriteString(ls.TokenLiteral() + " ")
-	out.WriteString(ls.Name.String())
-
-	if ls.Type != nil {
-		out.WriteString(": " + ls.Type.String())
-	}
-
-	out.WriteString(" = ")
-
-	if ls.Value != nil {
-		out.WriteString(ls.Value.String())
-	}
-
-	out.WriteString(";")
-
-	return out.String()
-}
-
 // TypeAnnotation represents a type annotation like `: String` in Vibe.
 // Type annotations provide static type information to variables, parameters,
 // and return values. They are a key feature that distinguishes Vibe from Ruby.
@@ -182,14 +141,17 @@ func (es *ExpressionStatement) String() string {
 	return ""
 }
 
-// BlockStatement represents a block of statements enclosed in curly braces.
-// Example in Vibe code: `{ let x = 5; return x; }`
+// BlockStatement represents a block of statements.
+// A block is a sequence of statements enclosed in a structure like if/else, function body, etc.
+// Example in Vibe code for a function body:
 //
-// BlockStatements are used in function bodies, if statements, and
-// other constructs that group multiple statements together.
+//	def example()
+//	    x = 5
+//	    return x
+//	end
 type BlockStatement struct {
-	Token      lexer.Token // the { token
-	Statements []Statement // The statements within the block
+	Token      lexer.Token    // The token that starts the block (e.g., '{', 'do', etc.)
+	Statements []Statement    // The statements in the block
 }
 
 func (bs *BlockStatement) statementNode() {}
@@ -278,52 +240,64 @@ func (nl *NilLiteral) TokenLiteral() string { return nl.Token.Literal }
 func (nl *NilLiteral) String() string { return "nil" }
 
 // FunctionLiteral represents a function definition.
-// Example in Vibe code: `func add(x: Int, y: Int): Int { return x + y; }`
+// Example in Vibe code:
 //
-// Functions in Vibe are first-class values and can be assigned to variables,
-// passed as arguments, and returned from other functions.
+//	def add(x: int, y: int): int
+//	    x + y
+//	end
+//
+// Functions in Vibe can be named or anonymous, can have
+// typed or untyped parameters, and can specify a return type.
 type FunctionLiteral struct {
-	Token      lexer.Token       // The 'func' token
-	Name       *Identifier       // Function name (optional for anonymous functions)
-	Parameters []*Identifier     // Parameter list
-	ParamTypes []*TypeAnnotation // Parameter types (optional)
-	ReturnType *TypeAnnotation   // Return type (optional)
+	Token      lexer.Token       // The 'fn' or 'def' token
+	Name       *Identifier       // Optional function name (can be nil for anonymous functions)
+	Parameters []*Identifier     // Parameters (can be empty)
+	ParamTypes []Expression      // Parameter type annotations (can be nil for untyped parameters)
+	ReturnType Expression        // Return type annotation (can be nil)
 	Body       *BlockStatement   // Function body
 }
 
 func (fl *FunctionLiteral) expressionNode() {}
 func (fl *FunctionLiteral) TokenLiteral() string { return fl.Token.Literal }
 
-// String returns a string representation of the FunctionLiteral.
-// Format: "func [name](<params>) [: <return_type>] { <body> }"
+// String returns a string representation of the function.
+// Format: "def [name](<params>) [: <return_type>]
+//             <body>
+//         end"
 func (fl *FunctionLiteral) String() string {
 	var out bytes.Buffer
 
-	params := []string{}
-	for i, p := range fl.Parameters {
-		paramStr := p.String()
-		// Add type annotation if available
-		if i < len(fl.ParamTypes) && fl.ParamTypes[i] != nil {
-			paramStr += ": " + fl.ParamTypes[i].String()
-		}
-		params = append(params, paramStr)
+	if fl.Token.Literal == "def" {
+		out.WriteString("def ")
+	} else {
+		out.WriteString("fn ")
 	}
 
-	out.WriteString(fl.TokenLiteral())
 	if fl.Name != nil {
-		out.WriteString(" " + fl.Name.String())
+		out.WriteString(fl.Name.Value)
 	}
+
+	params := []string{}
+	for i, p := range fl.Parameters {
+		if i < len(fl.ParamTypes) && fl.ParamTypes[i] != nil {
+			params = append(params, p.String()+": "+fl.ParamTypes[i].String())
+		} else {
+			params = append(params, p.String())
+		}
+	}
+
 	out.WriteString("(")
 	out.WriteString(strings.Join(params, ", "))
 	out.WriteString(")")
 
 	if fl.ReturnType != nil {
-		out.WriteString(": " + fl.ReturnType.String())
+		out.WriteString(": ")
+		out.WriteString(fl.ReturnType.String())
 	}
 
-	out.WriteString(" { ")
+	out.WriteString("\n")
 	out.WriteString(fl.Body.String())
-	out.WriteString(" }")
+	out.WriteString("\nend")
 
 	return out.String()
 }
@@ -419,9 +393,13 @@ func (ce *CallExpression) String() string {
 }
 
 // IfExpression represents an if expression.
-// Example in Vibe code: `if x > 5 { return true; } else { return false; }`
+// Example in Vibe code: `if x > 5
+//    return true
+// else
+//    return false
+// end`
 //
-// If expressions in Vibe are similar to other languages but can be used
+// If expressions in Vibe are similar to Ruby and can be used
 // as expressions that produce values, not just as control flow statements.
 type IfExpression struct {
 	Token       lexer.Token     // The 'if' token
@@ -434,21 +412,21 @@ func (ie *IfExpression) expressionNode() {}
 func (ie *IfExpression) TokenLiteral() string { return ie.Token.Literal }
 
 // String returns a string representation of the IfExpression.
-// Format: "if <condition> { <consequence> } [else { <alternative> }]"
+// Format: "if <condition> <consequence> [else <alternative>] end"
 func (ie *IfExpression) String() string {
 	var out bytes.Buffer
 
 	out.WriteString("if ")
 	out.WriteString(ie.Condition.String())
-	out.WriteString(" { ")
+	out.WriteString("\n")
 	out.WriteString(ie.Consequence.String())
-	out.WriteString(" }")
 
 	if ie.Alternative != nil {
-		out.WriteString(" else { ")
+		out.WriteString(" else\n")
 		out.WriteString(ie.Alternative.String())
-		out.WriteString(" }")
 	}
+
+	out.WriteString(" end")
 
 	return out.String()
 }
@@ -694,17 +672,117 @@ func (rc *RangeCallExpression) String() string {
 	return out.String()
 }
 
-// StringInterpolationLiteral represents a string with interpolated expressions.
+// StringInterpolationLiteral represents a string that contains interpolated expressions.
 // Example: "Hello, ${name}!"
+//
+// String interpolation in Vibe allows embedding expressions within strings.
+// The expressions are evaluated at runtime and their values are inserted into the string.
 type StringInterpolationLiteral struct {
-	Token       lexer.Token  // the STRING token
-	Value       string       // The raw string value including ${...} placeholders
-	Expressions []Expression // The parsed expressions within ${...} placeholders
-	Parts       []string     // The string parts between interpolations
+	Token       lexer.Token    // The string token
+	Value       string         // The raw string value including ${...} placeholders
+	Parts       []string       // The string parts (before, between, and after expressions)
+	Expressions []Expression   // The parsed expressions within ${...} placeholders
 }
 
 func (sil *StringInterpolationLiteral) expressionNode() {}
 func (sil *StringInterpolationLiteral) TokenLiteral() string { return sil.Token.Literal }
 func (sil *StringInterpolationLiteral) String() string {
 	return "\"" + sil.Value + "\""
+}
+
+// ForLoop represents a for loop statement in Vibe.
+// It iterates over a collection (array, range, etc.) and executes the body for each element.
+//
+// Example Vibe code:
+//
+//	for i in [1, 2, 3]
+//	  puts(i)
+//	end
+type ForLoop struct {
+	Token      lexer.Token // The 'for' token
+	Iterator   *Identifier // The variable that holds each element during iteration
+	Collection Expression  // The collection to iterate over (array, range, etc.)
+	Body       *BlockStatement // The body of the loop
+}
+
+func (fl *ForLoop) statementNode() {}
+func (fl *ForLoop) TokenLiteral() string { return fl.Token.Literal }
+func (fl *ForLoop) String() string {
+	var out bytes.Buffer
+
+	out.WriteString("for ")
+	out.WriteString(fl.Iterator.String())
+	out.WriteString(" in ")
+	out.WriteString(fl.Collection.String())
+	out.WriteString(" ")
+	out.WriteString(fl.Body.String())
+
+	return out.String()
+}
+
+// DotExpression represents a dot expression for accessing struct fields.
+// Example: person.name
+type DotExpression struct {
+	Token lexer.Token // The '.' token
+	Left  Expression  // The expression before the dot (e.g., person)
+	Field *Identifier // The field name after the dot (e.g., name)
+}
+
+func (de *DotExpression) expressionNode() {}
+func (de *DotExpression) TokenLiteral() string { return de.Token.Literal }
+func (de *DotExpression) String() string {
+	var out bytes.Buffer
+
+	out.WriteString("(")
+	out.WriteString(de.Left.String())
+	out.WriteString(".")
+	out.WriteString(de.Field.String())
+	out.WriteString(")")
+
+	return out.String()
+}
+
+// IndexExpression represents an index expression for accessing array elements.
+// Example: arr[0]
+type IndexExpression struct {
+	Token lexer.Token // The '[' token
+	Left  Expression  // The expression before the brackets (e.g., arr)
+	Index Expression  // The index expression inside the brackets (e.g., 0)
+}
+
+func (ie *IndexExpression) expressionNode() {}
+func (ie *IndexExpression) TokenLiteral() string { return ie.Token.Literal }
+func (ie *IndexExpression) String() string {
+	var out bytes.Buffer
+
+	out.WriteString("(")
+	out.WriteString(ie.Left.String())
+	out.WriteString("[")
+	out.WriteString(ie.Index.String())
+	out.WriteString("])")
+
+	return out.String()
+}
+
+// InfixExpression represents an infix expression: <left> <operator> <right>
+// Examples: a + b, a == b, a < b
+type InfixExpression struct {
+	Token    lexer.Token // The operator token, e.g. +
+	Left     Expression  // The left-hand side expression
+	Operator string      // The operator string, e.g. +
+	Right    Expression  // The right-hand side expression
+}
+
+func (ie *InfixExpression) expressionNode() {}
+func (ie *InfixExpression) TokenLiteral() string { return ie.Token.Literal }
+func (ie *InfixExpression) String() string {
+	var out bytes.Buffer
+
+	out.WriteString("(")
+	out.WriteString(ie.Left.String())
+	out.WriteString(" " + ie.Operator + " ")
+	out.WriteString(ie.Right.String())
+	out.WriteString(")")
+
+	return out.String()
 }

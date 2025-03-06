@@ -94,9 +94,9 @@ not_result = !is_true             # Logical NOT: false
 if age >= 18
   puts("You are an adult")
 elsif age >= 13
-  puts("You are a teenager")
+  puts "You are a teenager"
 else
-  puts("You are a child")
+  puts "You are a child"
 end
 ```
 
@@ -145,7 +145,7 @@ end
 
 ```vibe
 message = greet("World")
-puts(message)  # Output: Hello, World!
+puts message  # Output: Hello, World!
 ```
 
 ### Functions with Explicit Return

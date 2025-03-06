@@ -80,13 +80,14 @@ const (
 	END      = "END"      // 'end' keyword to close blocks like struct definitions
 	LET      = "LET"      // 'let' keyword for variable declarations
 	DEF      = "DEF"      // 'def' keyword for function definitions
+	FOR      = "FOR"      // 'for' keyword for loop statements
+	IN       = "IN"       // 'in' keyword for loop statements
 )
 
 // keywords maps string keywords to their token types
 var keywords = map[string]TokenType{
 	"fn":      FUNCTION,
 	"def":     DEF,
-	"let":     LET,
 	"true":    TRUE,
 	"false":   FALSE,
 	"if":      IF,
@@ -99,6 +100,8 @@ var keywords = map[string]TokenType{
 	"struct":  STRUCT,
 	"prop":    PROP,
 	"Range":   IDENT, // Range constructor is treated as an identifier
+	"for":     FOR,
+	"in":      IN,
 }
 
 // LookupIdent checks if the given identifier is a keyword.

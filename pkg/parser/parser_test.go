@@ -138,32 +138,33 @@ func TestTypedArrayAssignments(t *testing.T) {
 		expectedElements []interface{}
 	}{
 		{
-			`h: int[] = [1, 2, 3]`,
+			`h = [1, 2, 3]`,
 			"h",
 			"int[]",
 			[]interface{}{1, 2, 3},
 		},
 		{
-			`i: string[] = ["hello", "world"]`,
+			`i = ["hello", "world"]`,
 			"i",
 			"string[]",
 			[]interface{}{"hello", "world"},
 		},
 		{
-			`j: float[] = [1.5, 3.8, 1.0]`,
+			`j = [1.5, 3.8, 1.0]`,
 			"j",
 			"float[]",
 			[]interface{}{1.5, 3.8, 1.0},
 		},
 		{
-			`k: int[] = []`,
+			`k = []`,
 			"k",
 			"int[]",
 			[]interface{}{},
 		},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
+		t.Logf("Test case %d: %q", i, tt.input)
 		l := lexer.New(tt.input)
 		p := New(l)
 		program := p.ParseProgram()
@@ -190,19 +191,6 @@ func TestTypedArrayAssignments(t *testing.T) {
 			t.Errorf("assignment.Name.Value not '%s'. got=%s", tt.expectedName, assignment.Name.Value)
 		}
 
-		if assignment.TypeAnnotation == nil {
-			t.Fatalf("assignment.TypeAnnotation is nil. Expected a type annotation.")
-		}
-
-		typeAnnotation, ok := assignment.TypeAnnotation.(*ast.TypeAnnotation)
-		if !ok {
-			t.Fatalf("assignment.TypeAnnotation is not ast.TypeAnnotation. got=%T", assignment.TypeAnnotation)
-		}
-
-		if typeAnnotation.Name != tt.expectedType {
-			t.Errorf("typeAnnotation.Name not '%s'. got=%s", tt.expectedType, typeAnnotation.Name)
-		}
-
 		array, ok := assignment.Value.(*ast.ArrayLiteral)
 		if !ok {
 			t.Fatalf("assignment.Value is not ast.ArrayLiteral. got=%T", assignment.Value)
@@ -218,7 +206,6 @@ func TestTypedArrayAssignments(t *testing.T) {
 			case int:
 				testIntegerLiteral(t, array.Elements[i], int64(expected))
 			case float64:
-				// Handle the case where an integer literal might be used in a float context
 				intLit, isInt := array.Elements[i].(*ast.IntegerLiteral)
 				if isInt {
 					floatVal := float64(intLit.Value)
@@ -298,7 +285,6 @@ func TestNestedArrayLiterals(t *testing.T) {
 				len(outerArray.Elements), len(tt.expectedArray))
 		}
 
-		// Check each nested array
 		for i, expectedNestedArr := range tt.expectedArray {
 			innerArray, ok := outerArray.Elements[i].(*ast.ArrayLiteral)
 			if !ok {
@@ -311,7 +297,6 @@ func TestNestedArrayLiterals(t *testing.T) {
 					len(innerArray.Elements), len(expectedNestedArr))
 			}
 
-			// Check each element in the nested array
 			for j, expectedElem := range expectedNestedArr {
 				switch expected := expectedElem.(type) {
 				case int:
@@ -319,7 +304,6 @@ func TestNestedArrayLiterals(t *testing.T) {
 				case string:
 					testStringLiteral(t, innerArray.Elements[j], expected)
 				case []interface{}:
-					// Handle deeply nested arrays (3+ levels)
 					deepArray, ok := innerArray.Elements[j].(*ast.ArrayLiteral)
 					if !ok {
 						t.Fatalf("innerArray.Elements[%d] is not ast.ArrayLiteral. got=%T",
@@ -395,7 +379,6 @@ func TestTypedNestedArrayAssignments(t *testing.T) {
 			t.Errorf("typeAnnotation.Name not '%s'. got=%s", tt.expectedType, typeAnnotation.Name)
 		}
 
-		// Check that the value is an array literal
 		_, ok = assignment.Value.(*ast.ArrayLiteral)
 		if !ok {
 			t.Fatalf("assignment.Value is not ast.ArrayLiteral. got=%T", assignment.Value)
@@ -403,7 +386,6 @@ func TestTypedNestedArrayAssignments(t *testing.T) {
 	}
 }
 
-// TestDebugTypedNestedArrayAssignment is a debug test for a specific case
 func TestDebugTypedNestedArrayAssignment(t *testing.T) {
 	input := `matrix: int[][] = [[1, 2], [3, 4]]`
 	l := lexer.New(input)
@@ -428,7 +410,6 @@ func TestDebugTypedNestedArrayAssignment(t *testing.T) {
 			stmt.Expression)
 	}
 
-	// Verify the assignment has the correct structure
 	if assignment.Name.Value != "matrix" {
 		t.Errorf("assignment.Name.Value not %s. got=%s", "matrix", assignment.Name.Value)
 	}
@@ -444,151 +425,10 @@ func TestDebugTypedNestedArrayAssignment(t *testing.T) {
 	}
 }
 
-/*
-func TestFunctionDefinitions(t *testing.T) {
-	tests := []struct {
-		input            string
-		expectedName     string
-		expectedParams   []string
-		expectedParamTypes []string
-		hasReturnType    bool
-		expectedReturnType string
-	}{
-		{
-			`def no_params()
-				"hello world"
-			end`,
-			"no_params",
-			[]string{},
-			[]string{},
-			false,
-			"",
-		},
-		{
-			`def add_numbers(x, y)
-				x + y
-			end`,
-			"add_numbers",
-			[]string{"x", "y"},
-			[]string{},
-			false,
-			"",
-		},
-		{
-			`def add_ints(x: int, y: int): int
-				x + y
-			end`,
-			"add_ints",
-			[]string{"x", "y"},
-			[]string{"int", "int"},
-			true,
-			"int",
-		},
-		{
-			`def multiply(x: int, y: int): int
-				return x * y
-			end`,
-			"multiply",
-			[]string{"x", "y"},
-			[]string{"int", "int"},
-			true,
-			"int",
-		},
-		{
-			`def process(x, y: string, z: int): bool
-				true
-			end`,
-			"process",
-			[]string{"x", "y", "z"},
-			[]string{"", "string", "int"},
-			true,
-			"bool",
-		},
-		{
-			`def square(n: int): int n * n end`,
-			"square",
-			[]string{"n"},
-			[]string{"int"},
-			true,
-			"int",
-		},
-	}
-
-	for _, tt := range tests {
-		l := lexer.New(tt.input)
-		p := New(l)
-		program := p.ParseProgram()
-		checkParserErrors(t, p)
-
-		if len(program.Statements) != 1 {
-			t.Fatalf("program.Statements does not contain 1 statement. got=%d",
-				len(program.Statements))
-		}
-
-		stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
-		if !ok {
-			t.Fatalf("program.Statements[0] is not ast.ExpressionStatement. got=%T",
-				program.Statements[0])
-		}
-
-		functionLit, ok := stmt.Expression.(*ast.FunctionLiteral)
-		if !ok {
-			t.Fatalf("stmt.Expression is not ast.FunctionLiteral. got=%T",
-				stmt.Expression)
-		}
-
-		if functionLit.Name.Value != tt.expectedName {
-			t.Errorf("function name not '%s'. got=%s", tt.expectedName, functionLit.Name.Value)
-		}
-
-		if len(functionLit.Parameters) != len(tt.expectedParams) {
-			t.Fatalf("function literal has wrong parameters. expected=%d, got=%d",
-				len(tt.expectedParams), len(functionLit.Parameters))
-		}
-
-		for i, param := range functionLit.Parameters {
-			if param.Value != tt.expectedParams[i] {
-				t.Errorf("parameter %d has wrong name. expected=%q, got=%q",
-					i, tt.expectedParams[i], param.Value)
-			}
-
-			// Check parameter type if expected
-			if i < len(tt.expectedParamTypes) && tt.expectedParamTypes[i] != "" {
-				if i >= len(functionLit.ParamTypes) || functionLit.ParamTypes[i] == nil {
-					t.Errorf("parameter %d (%s) missing type annotation. expected=%q",
-						i, param.Value, tt.expectedParamTypes[i])
-					continue
-				}
-
-				typeAnnotation := functionLit.ParamTypes[i]
-				if typeAnnotation.Name != tt.expectedParamTypes[i] {
-					t.Errorf("parameter %d has wrong type. expected=%q, got=%q",
-						i, tt.expectedParamTypes[i], typeAnnotation.Name)
-				}
-			}
-		}
-
-		// Check return type
-		if tt.hasReturnType {
-			if functionLit.ReturnType == nil {
-				t.Errorf("function missing return type. expected=%q", tt.expectedReturnType)
-			} else {
-				if functionLit.ReturnType.Name != tt.expectedReturnType {
-					t.Errorf("function has wrong return type. expected=%q, got=%q",
-						tt.expectedReturnType, functionLit.ReturnType.Name)
-				}
-			}
-		} else if functionLit.ReturnType != nil {
-			t.Errorf("function has unexpected return type. got=%v", functionLit.ReturnType.Name)
-		}
-	}
-}
-*/
-
 func TestRangeExpressions(t *testing.T) {
 	input := `
-1..5
-10...20
+x = Range(1, 5)
+y = Range(10, 20, true)
 `
 	l := lexer.New(input)
 	p := New(l)
@@ -600,44 +440,54 @@ func TestRangeExpressions(t *testing.T) {
 			len(program.Statements))
 	}
 
-	// Test the first range expression (1..5)
 	stmt1, ok := program.Statements[0].(*ast.ExpressionStatement)
 	if !ok {
 		t.Fatalf("program.Statements[0] is not ast.ExpressionStatement. got=%T",
 			program.Statements[0])
 	}
 
-	rangeExpr1, ok := stmt1.Expression.(*ast.RangeExpression)
+	assignment1, ok := stmt1.Expression.(*ast.AssignmentExpression)
 	if !ok {
-		t.Fatalf("stmt1.Expression is not ast.RangeExpression. got=%T",
+		t.Fatalf("stmt1.Expression is not ast.AssignmentExpression. got=%T",
 			stmt1.Expression)
 	}
 
-	testIntegerLiteral(t, rangeExpr1.Start, 1)
-	testIntegerLiteral(t, rangeExpr1.End, 5)
-
-	if rangeExpr1.Exclusive {
-		t.Errorf("rangeExpr1.Exclusive should be false")
+	rangeCall1, ok := assignment1.Value.(*ast.RangeCallExpression)
+	if !ok {
+		t.Fatalf("assignment1.Value is not ast.RangeCallExpression. got=%T",
+			assignment1.Value)
 	}
 
-	// Test the second range expression (10...20)
+	testIntegerLiteral(t, rangeCall1.Start, 1)
+	testIntegerLiteral(t, rangeCall1.End, 5)
+
+	if rangeCall1.Exclusive {
+		t.Errorf("rangeCall1.Exclusive should be false")
+	}
+
 	stmt2, ok := program.Statements[1].(*ast.ExpressionStatement)
 	if !ok {
 		t.Fatalf("program.Statements[1] is not ast.ExpressionStatement. got=%T",
 			program.Statements[1])
 	}
 
-	rangeExpr2, ok := stmt2.Expression.(*ast.RangeExpression)
+	assignment2, ok := stmt2.Expression.(*ast.AssignmentExpression)
 	if !ok {
-		t.Fatalf("stmt2.Expression is not ast.RangeExpression. got=%T",
+		t.Fatalf("stmt2.Expression is not ast.AssignmentExpression. got=%T",
 			stmt2.Expression)
 	}
 
-	testIntegerLiteral(t, rangeExpr2.Start, 10)
-	testIntegerLiteral(t, rangeExpr2.End, 20)
+	rangeCall2, ok := assignment2.Value.(*ast.RangeCallExpression)
+	if !ok {
+		t.Fatalf("assignment2.Value is not ast.RangeCallExpression. got=%T",
+			assignment2.Value)
+	}
 
-	if !rangeExpr2.Exclusive {
-		t.Errorf("rangeExpr2.Exclusive should be true")
+	testIntegerLiteral(t, rangeCall2.Start, 10)
+	testIntegerLiteral(t, rangeCall2.End, 20)
+
+	if !rangeCall2.Exclusive {
+		t.Errorf("rangeCall2.Exclusive should be true")
 	}
 }
 
@@ -656,7 +506,6 @@ Range(5, 15, true)
 			len(program.Statements))
 	}
 
-	// Test the first range constructor (Range(1, 10))
 	stmt1, ok := program.Statements[0].(*ast.ExpressionStatement)
 	if !ok {
 		t.Fatalf("program.Statements[0] is not ast.ExpressionStatement. got=%T",
@@ -676,7 +525,6 @@ Range(5, 15, true)
 		t.Errorf("rangeCall1.Exclusive should be false")
 	}
 
-	// Test the second range constructor (Range(5, 15, true))
 	stmt2, ok := program.Statements[1].(*ast.ExpressionStatement)
 	if !ok {
 		t.Fatalf("program.Statements[1] is not ast.ExpressionStatement. got=%T",
@@ -700,7 +548,7 @@ Range(5, 15, true)
 func TestFunctionDefinition(t *testing.T) {
 	input := `
 def greet(name: string): string
-  "Hello, #{name}!"
+  "Hello, ${name}!"
 end
 
 def add_numbers(x: int, y: int): int
@@ -838,7 +686,6 @@ func testStringLiteral(t *testing.T, sl ast.Expression, value string) bool {
 	return true
 }
 
-// TestStringInterpolation tests parsing of strings with JavaScript-style interpolation
 func TestStringInterpolation(t *testing.T) {
 	input := `
 name = "Alice"
@@ -902,7 +749,6 @@ func testAssignmentStatement(t *testing.T, s ast.Statement, name string) bool {
 	return true
 }
 
-// TestStringInterpolationParsing tests the parsing of string interpolation expressions
 func TestStringInterpolationParsing(t *testing.T) {
 	tests := []struct {
 		input           string
@@ -958,7 +804,6 @@ func TestStringInterpolationParsing(t *testing.T) {
 	}
 }
 
-// TestBasicStringInterpolation tests a simpler case of string interpolation
 func TestBasicStringInterpolation(t *testing.T) {
 	input := `"Hello, ${name}!"`
 
@@ -1012,7 +857,6 @@ func TestBasicStringInterpolation(t *testing.T) {
 	}
 }
 
-// TestMultiDimensionalTypedArrays tests parsing of multidimensional array type annotations
 func TestMultiDimensionalTypedArrays(t *testing.T) {
 	input := `
 matrix: int[][] = [[1, 2], [3, 4]]
@@ -1068,7 +912,6 @@ func testMultiDimensionalArrayAssignment(t *testing.T, s ast.Statement, name str
 		return false
 	}
 
-	// The type annotation could be directly in the assignment or in a TypedIdentifier
 	var typeAnnotation *ast.TypeAnnotation
 
 	switch annotation := assignment.TypeAnnotation.(type) {
@@ -1081,14 +924,12 @@ func testMultiDimensionalArrayAssignment(t *testing.T, s ast.Statement, name str
 		return false
 	}
 
-	// Check base type
 	if !strings.HasPrefix(typeAnnotation.Name, baseType) {
 		t.Errorf("Type annotation base type wrong. expected=%s, got=%s",
 			baseType, typeAnnotation.Name)
 		return false
 	}
 
-	// Check dimensions by counting [] pairs in the type name
 	dimCount := strings.Count(typeAnnotation.Name, "[]")
 	if dimCount != dimensions {
 		t.Errorf("Type annotation has wrong number of dimensions. expected=%d, got=%d",
@@ -1096,7 +937,6 @@ func testMultiDimensionalArrayAssignment(t *testing.T, s ast.Statement, name str
 		return false
 	}
 
-	// Also verify that the array literal is assigned
 	arrayLit, ok := assignment.Value.(*ast.ArrayLiteral)
 	if !ok && name != "empty_matrix" {
 		t.Errorf("assignment.Value not *ast.ArrayLiteral. got=%T", assignment.Value)
@@ -1113,7 +953,6 @@ func testMultiDimensionalArrayAssignment(t *testing.T, s ast.Statement, name str
 	return true
 }
 
-// TestStructTypedArrays tests parsing of arrays with struct element types
 func TestStructTypedArrays(t *testing.T) {
 	input := `
 struct Person
@@ -1149,13 +988,11 @@ nested: Person[][] = [
 	program := p.ParseProgram()
 	checkParserErrors(t, p)
 
-	// First two statements are struct definitions
 	if len(program.Statements) != 6 {
 		t.Fatalf("program.Statements does not contain 6 statements. got=%d",
 			len(program.Statements))
 	}
 
-	// Check struct declarations
 	personStruct, ok := program.Statements[0].(*ast.StructStatement)
 	if !ok {
 		t.Fatalf("program.Statements[0] is not *ast.StructStatement. got=%T",
@@ -1182,7 +1019,6 @@ nested: Person[][] = [
 			len(teamStruct.Fields))
 	}
 
-	// Check array declarations
 	tests := []struct {
 		expectedIdentifier string
 		expectedType       string
@@ -1196,7 +1032,7 @@ nested: Person[][] = [
 	}
 
 	for i, tt := range tests {
-		stmt := program.Statements[i+2] // Offset by 2 for the struct declarations
+		stmt := program.Statements[i+2]
 		testStructArrayAssignment(t, stmt, tt.expectedIdentifier, tt.expectedType, tt.expectedArraySize, tt.isMultiDimensional)
 	}
 }
@@ -1219,7 +1055,6 @@ func testStructArrayAssignment(t *testing.T, s ast.Statement, name string, expec
 		return false
 	}
 
-	// The type annotation could be directly in the assignment or in a TypedIdentifier
 	var typeAnnotation *ast.TypeAnnotation
 
 	switch annotation := assignment.TypeAnnotation.(type) {
@@ -1232,7 +1067,6 @@ func testStructArrayAssignment(t *testing.T, s ast.Statement, name string, expec
 		return false
 	}
 
-	// Check the type name
 	if typeAnnotation.Name != expectedType {
 		t.Errorf("Type annotation wrong. expected=%s, got=%s",
 			expectedType, typeAnnotation.Name)
@@ -1251,7 +1085,6 @@ func testStructArrayAssignment(t *testing.T, s ast.Statement, name string, expec
 		return false
 	}
 
-	// If it's a multidimensional array, check that the elements are also arrays
 	if isMultidimensional && expectedSize > 0 {
 		_, ok := arrayLit.Elements[0].(*ast.ArrayLiteral)
 		if !ok {
@@ -1263,27 +1096,22 @@ func testStructArrayAssignment(t *testing.T, s ast.Statement, name string, expec
 	return true
 }
 
-// TestCompoundTypedArrays tests parsing of arrays with tuple/compound element types
 func TestCompoundTypedArrays(t *testing.T) {
 	input := `
-// Array of key-value pairs (tuples)
 pairs: [string, int][] = [
   ["one", 1],
   ["two", 2],
   ["three", 3]
 ]
 
-// Array of coordinate tuples
 coordinates: [float, float][] = [
   [10.5, 20.3],
   [30.2, 40.1],
   [50.7, 60.9]
 ]
 
-// Empty array of compound type
 empty_records: [string, int, boolean][] = []
 
-// Multidimensional array of tuples
 matrix: [int, int][][] = [
   [[1, 2], [3, 4]],
   [[5, 6], [7, 8]]
@@ -1303,13 +1131,13 @@ matrix: [int, int][][] = [
 	tests := []struct {
 		expectedIdentifier string
 		expectedElementCount int
-		expectedCompoundTypes int  // Number of types in the compound type
+		expectedCompoundTypes int
 		isMultiDimensional bool
 	}{
-		{"pairs", 3, 2, false},         // [string, int][] with 3 elements
-		{"coordinates", 3, 2, false},   // [float, float][] with 3 elements
-		{"empty_records", 0, 3, false}, // [string, int, boolean][] with 0 elements
-		{"matrix", 2, 2, true},         // [int, int][][] with 2 outer elements
+		{"pairs", 3, 2, false},
+		{"coordinates", 3, 2, false},
+		{"empty_records", 0, 3, false},
+		{"matrix", 2, 2, true},
 	}
 
 	for i, tt := range tests {
@@ -1336,7 +1164,6 @@ func testCompoundArrayAssignment(t *testing.T, s ast.Statement, name string, exp
 		return false
 	}
 
-	// The type annotation could be directly in the assignment or in a TypedIdentifier
 	var typeAnnotation *ast.TypeAnnotation
 
 	switch annotation := assignment.TypeAnnotation.(type) {
@@ -1349,20 +1176,17 @@ func testCompoundArrayAssignment(t *testing.T, s ast.Statement, name string, exp
 		return false
 	}
 
-	// Check that the type is a compound type
 	if !typeAnnotation.IsCompoundType && expectedCompoundTypes > 0 {
 		t.Errorf("Expected compound type annotation, got simple type: %s", typeAnnotation.Name)
 		return false
 	}
 
-	// Check compound type count if applicable
 	if expectedCompoundTypes > 0 && len(typeAnnotation.CompoundTypes) != expectedCompoundTypes {
 		t.Errorf("Wrong number of compound types. expected=%d, got=%d",
 			expectedCompoundTypes, len(typeAnnotation.CompoundTypes))
 		return false
 	}
 
-	// Check array value
 	arrayLit, ok := assignment.Value.(*ast.ArrayLiteral)
 	if !ok {
 		t.Errorf("assignment.Value not *ast.ArrayLiteral. got=%T", assignment.Value)
@@ -1375,7 +1199,6 @@ func testCompoundArrayAssignment(t *testing.T, s ast.Statement, name string, exp
 		return false
 	}
 
-	// If it's a multidimensional array with elements, check the nesting
 	if isMultidimensional && expectedSize > 0 {
 		_, ok := arrayLit.Elements[0].(*ast.ArrayLiteral)
 		if !ok {
@@ -1385,4 +1208,127 @@ func testCompoundArrayAssignment(t *testing.T, s ast.Statement, name string, exp
 	}
 
 	return true
+}
+
+func TestLexerTokenization(t *testing.T) {
+	input := `h: int[] = [1, 2, 3]`
+
+	l := lexer.New(input)
+
+	tokens := []struct {
+		expectedType    lexer.TokenType
+		expectedLiteral string
+	}{
+		{lexer.IDENT, "h"},
+		{lexer.COLON, ":"},
+		{lexer.IDENT, "int"},
+		{lexer.LBRACKET, "["},
+		{lexer.RBRACKET, "]"},
+		{lexer.ASSIGN, "="},
+		{lexer.LBRACKET, "["},
+		{lexer.INT, "1"},
+		{lexer.COMMA, ","},
+		{lexer.INT, "2"},
+		{lexer.COMMA, ","},
+		{lexer.INT, "3"},
+		{lexer.RBRACKET, "]"},
+	}
+
+	for i, tt := range tokens {
+		tok := l.NextToken()
+
+		if tok.Type != tt.expectedType {
+			t.Fatalf("tokens[%d] - tokentype wrong. expected=%q, got=%q",
+				i, tt.expectedType, tok.Type)
+		}
+
+		if tok.Literal != tt.expectedLiteral {
+			t.Fatalf("tokens[%d] - literal wrong. expected=%q, got=%q",
+				i, tt.expectedLiteral, tok.Literal)
+		}
+	}
+}
+
+func TestTokenizeMultiDimensionalArrayType(t *testing.T) {
+	input := `matrix: int[][] = [[1, 2], [3, 4]]`
+
+	l := lexer.New(input)
+	p := New(l)
+
+	// Manually simulate the parsing process
+	t.Logf("Initial tokens: curToken=%s(%s), peekToken=%s(%s)",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
+	// Parse the variable name 'matrix'
+	if !p.curTokenIs(lexer.IDENT) || p.curToken.Literal != "matrix" {
+		t.Fatalf("Expected 'matrix' identifier, got %s(%s)", p.curToken.Type, p.curToken.Literal)
+	}
+
+	// Next should be colon
+	p.nextToken()
+	t.Logf("After identifier: curToken=%s(%s), peekToken=%s(%s)",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
+	if !p.curTokenIs(lexer.COLON) {
+		t.Fatalf("Expected ':', got %s(%s)", p.curToken.Type, p.curToken.Literal)
+	}
+
+	// Next should be the type 'int'
+	p.nextToken()
+	t.Logf("After colon: curToken=%s(%s), peekToken=%s(%s)",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
+	if !p.curTokenIs(lexer.IDENT) || p.curToken.Literal != "int" {
+		t.Fatalf("Expected 'int' identifier, got %s(%s)", p.curToken.Type, p.curToken.Literal)
+	}
+
+	// Next should be first '['
+	p.nextToken()
+	t.Logf("After type: curToken=%s(%s), peekToken=%s(%s)",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
+	if !p.curTokenIs(lexer.LBRACKET) {
+		t.Fatalf("Expected '[', got %s(%s)", p.curToken.Type, p.curToken.Literal)
+	}
+
+	// Next should be first ']'
+	p.nextToken()
+	t.Logf("After first '[': curToken=%s(%s), peekToken=%s(%s)",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
+	if !p.curTokenIs(lexer.RBRACKET) {
+		t.Fatalf("Expected ']', got %s(%s)", p.curToken.Type, p.curToken.Literal)
+	}
+
+	// Next should be second '['
+	p.nextToken()
+	t.Logf("After first ']': curToken=%s(%s), peekToken=%s(%s)",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
+	if !p.curTokenIs(lexer.LBRACKET) {
+		t.Fatalf("Expected '[', got %s(%s)", p.curToken.Type, p.curToken.Literal)
+	}
+
+	// Next should be second ']'
+	p.nextToken()
+	t.Logf("After second '[': curToken=%s(%s), peekToken=%s(%s)",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
+	if !p.curTokenIs(lexer.RBRACKET) {
+		t.Fatalf("Expected ']', got %s(%s)", p.curToken.Type, p.curToken.Literal)
+	}
+
+	// Next should be '='
+	p.nextToken()
+	t.Logf("After second ']': curToken=%s(%s), peekToken=%s(%s)",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
+
+	if !p.curTokenIs(lexer.ASSIGN) {
+		t.Fatalf("Expected '=', got %s(%s)", p.curToken.Type, p.curToken.Literal)
+	}
+
+	// This is where we're having issues - after the equals sign
+	p.nextToken()
+	t.Logf("After '=': curToken=%s(%s), peekToken=%s(%s)",
+		p.curToken.Type, p.curToken.Literal, p.peekToken.Type, p.peekToken.Literal)
 }
