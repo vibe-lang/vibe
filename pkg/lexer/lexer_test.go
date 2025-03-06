@@ -5,44 +5,46 @@ import (
 )
 
 func TestNextToken(t *testing.T) {
-	input := `five = 5;
-ten = 10;
-add = def add_numbers(x: int, y, z: string): SomeStruct
-  result = x + y;
+	input := `five = 5
+ten = 10
+
+def add_numbers(x: int, y, z: string): SomeStruct
+  result = x + y
   SomeStruct(g: result)
-end;
-result = add_numbers(five, ten, "hello");
+end
+
+result = add_numbers(five, ten, "hello")
 
 # simple function without type annotations
-simple = def no_types(a, b)
+def no_types(a, b)
   a + b
-end;
+end
 
 # function with return type but no parameter types
-calc = def calculate(x, y): int
+def calculate(x, y): int
   return x * y
-end;
+end
 
 # function with parameter types but no return type
-print = def log(message: string, level: int)
+def log(message: string, level: int)
   # just a function that logs something
   "Logged: " + message
-end;
+end
 
 # one-liner function
-square = def square(n: int): int n * n end;
+def square(n: int): int n * n end
 
-!-/*5;
-5 < 10 > 5;
-if (5 < 10) {
-  return true;
-} else {
-  return false;
-}
-10 == 10;
-10 != 9;
-"hello world";
-"hello \\\"world\\\"";
+!-/*5
+5 < 10 > 5
+if (5 < 10)
+  return true
+else
+  return false
+end
+10 == 10
+10 != 9
+"hello world"
+"hello \"world\""
 `
 
 	tests := []struct {
@@ -52,13 +54,10 @@ if (5 < 10) {
 		{IDENT, "five"},
 		{ASSIGN, "="},
 		{INT, "5"},
-		{SEMICOLON, ";"},
 		{IDENT, "ten"},
 		{ASSIGN, "="},
 		{INT, "10"},
-		{SEMICOLON, ";"},
-		{IDENT, "add"},
-		{ASSIGN, "="},
+
 		{FUNCTION, "def"},
 		{IDENT, "add_numbers"},
 		{LPAREN, "("},
@@ -79,7 +78,6 @@ if (5 < 10) {
 		{IDENT, "x"},
 		{PLUS, "+"},
 		{IDENT, "y"},
-		{SEMICOLON, ";"},
 		{IDENT, "SomeStruct"},
 		{LPAREN, "("},
 		{IDENT, "g"},
@@ -87,7 +85,7 @@ if (5 < 10) {
 		{IDENT, "result"},
 		{RPAREN, ")"},
 		{END, "end"},
-		{SEMICOLON, ";"},
+
 		{IDENT, "result"},
 		{ASSIGN, "="},
 		{IDENT, "add_numbers"},
@@ -98,12 +96,9 @@ if (5 < 10) {
 		{COMMA, ","},
 		{STRING, "hello"},
 		{RPAREN, ")"},
-		{SEMICOLON, ";"},
 
 		// Simple function without type annotations
 		{HASH, "#"},
-		{IDENT, "simple"},
-		{ASSIGN, "="},
 		{FUNCTION, "def"},
 		{IDENT, "no_types"},
 		{LPAREN, "("},
@@ -115,12 +110,9 @@ if (5 < 10) {
 		{PLUS, "+"},
 		{IDENT, "b"},
 		{END, "end"},
-		{SEMICOLON, ";"},
 
 		// Function with return type but no parameter types
 		{HASH, "#"},
-		{IDENT, "calc"},
-		{ASSIGN, "="},
 		{FUNCTION, "def"},
 		{IDENT, "calculate"},
 		{LPAREN, "("},
@@ -135,12 +127,9 @@ if (5 < 10) {
 		{ASTERISK, "*"},
 		{IDENT, "y"},
 		{END, "end"},
-		{SEMICOLON, ";"},
 
 		// Function with parameter types but no return type
 		{HASH, "#"},
-		{IDENT, "print"},
-		{ASSIGN, "="},
 		{FUNCTION, "def"},
 		{IDENT, "log"},
 		{LPAREN, "("},
@@ -157,12 +146,9 @@ if (5 < 10) {
 		{PLUS, "+"},
 		{IDENT, "message"},
 		{END, "end"},
-		{SEMICOLON, ";"},
 
 		// One-liner function
 		{HASH, "#"},
-		{IDENT, "square"},
-		{ASSIGN, "="},
 		{FUNCTION, "def"},
 		{IDENT, "square"},
 		{LPAREN, "("},
@@ -176,49 +162,37 @@ if (5 < 10) {
 		{ASTERISK, "*"},
 		{IDENT, "n"},
 		{END, "end"},
-		{SEMICOLON, ";"},
 
 		{BANG, "!"},
 		{MINUS, "-"},
 		{SLASH, "/"},
 		{ASTERISK, "*"},
 		{INT, "5"},
-		{SEMICOLON, ";"},
 		{INT, "5"},
 		{LT, "<"},
 		{INT, "10"},
 		{GT, ">"},
 		{INT, "5"},
-		{SEMICOLON, ";"},
 		{IF, "if"},
 		{LPAREN, "("},
 		{INT, "5"},
 		{LT, "<"},
 		{INT, "10"},
 		{RPAREN, ")"},
-		{LBRACE, "{"},
 		{RETURN, "return"},
 		{TRUE, "true"},
-		{SEMICOLON, ";"},
-		{RBRACE, "}"},
 		{ELSE, "else"},
-		{LBRACE, "{"},
 		{RETURN, "return"},
 		{FALSE, "false"},
-		{SEMICOLON, ";"},
-		{RBRACE, "}"},
+		{END, "end"},
 		{INT, "10"},
 		{EQ, "=="},
 		{INT, "10"},
-		{SEMICOLON, ";"},
 		{INT, "10"},
 		{NOT_EQ, "!="},
 		{INT, "9"},
-		{SEMICOLON, ";"},
 		{STRING, "hello world"},
-		{SEMICOLON, ";"},
-		{STRING, "hello \\\\\\\"world\\\\\\\""},
-		{SEMICOLON, ";"},
+		{STRING, "hello \\\"world\\\""},
 		{EOF, ""},
 	}
 
@@ -241,7 +215,7 @@ if (5 < 10) {
 
 func TestComment(t *testing.T) {
 	input := `# This is a comment
-x = 5; # This is another comment`
+x = 5 # This is another comment`
 
 	tests := []struct {
 		expectedType    TokenType
@@ -251,7 +225,6 @@ x = 5; # This is another comment`
 		{IDENT, "x"},
 		{ASSIGN, "="},
 		{INT, "5"},
-		{SEMICOLON, ";"},
 		{HASH, "#"},
 		{EOF, ""},
 	}

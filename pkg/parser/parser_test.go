@@ -10,9 +10,9 @@ import (
 
 func TestVariableStatements(t *testing.T) {
 	input := `
-x = 5;
-y = 10;
-foobar = 838383;
+x = 5
+y = 10
+foobar = 838383
 `
 	l := lexer.New(input)
 	p := New(l)
@@ -68,15 +68,15 @@ func TestArrayLiterals(t *testing.T) {
 		expectedArray []interface{}
 	}{
 		{
-			`g = [];`,
+			`g = []`,
 			[]interface{}{},
 		},
 		{
-			`h = [1, 2, 3];`,
+			`h = [1, 2, 3]`,
 			[]interface{}{1, 2, 3},
 		},
 		{
-			`i = ["hello", "world"];`,
+			`i = ["hello", "world"]`,
 			[]interface{}{"hello", "world"},
 		},
 	}
@@ -137,25 +137,25 @@ func TestTypedArrayAssignments(t *testing.T) {
 		expectedElements []interface{}
 	}{
 		{
-			`h: int[] = [1, 2, 3];`,
+			`h: int[] = [1, 2, 3]`,
 			"h",
 			"int[]",
 			[]interface{}{1, 2, 3},
 		},
 		{
-			`i: string[] = ["hello", "world"];`,
+			`i: string[] = ["hello", "world"]`,
 			"i",
 			"string[]",
 			[]interface{}{"hello", "world"},
 		},
 		{
-			`j: float[] = [1.5, 3.8, 1.0];`,
+			`j: float[] = [1.5, 3.8, 1.0]`,
 			"j",
 			"float[]",
 			[]interface{}{1.5, 3.8, 1.0},
 		},
 		{
-			`k: int[] = [];`,
+			`k: int[] = []`,
 			"k",
 			"int[]",
 			[]interface{}{},
@@ -242,21 +242,21 @@ func TestNestedArrayLiterals(t *testing.T) {
 		expectedArray [][]interface{}
 	}{
 		{
-			`nested = [[1, 2], [3, 4]];`,
+			`nested = [[1, 2], [3, 4]]`,
 			[][]interface{}{
 				{1, 2},
 				{3, 4},
 			},
 		},
 		{
-			`strings = [["hello", "world"], ["foo", "bar"]];`,
+			`strings = [["hello", "world"], ["foo", "bar"]]`,
 			[][]interface{}{
 				{"hello", "world"},
 				{"foo", "bar"},
 			},
 		},
 		{
-			`mixed = [[], [1, 2]];`,
+			`mixed = [[], [1, 2]]`,
 			[][]interface{}{
 				{},
 				{1, 2},
@@ -343,12 +343,12 @@ func TestTypedNestedArrayAssignments(t *testing.T) {
 		expectedType     string
 	}{
 		{
-			`matrix: int[][] = [[1, 2], [3, 4]];`,
+			`matrix: int[][] = [[1, 2], [3, 4]]`,
 			"matrix",
 			"int[][]",
 		},
 		{
-			`names: string[][] = [["John", "Doe"], ["Jane", "Smith"]];`,
+			`names: string[][] = [["John", "Doe"], ["Jane", "Smith"]]`,
 			"names",
 			"string[][]",
 		},
@@ -404,7 +404,7 @@ func TestTypedNestedArrayAssignments(t *testing.T) {
 
 // TestDebugTypedNestedArrayAssignment is a debug test for a specific case
 func TestDebugTypedNestedArrayAssignment(t *testing.T) {
-	input := `matrix: int[][] = [[1, 2], [3, 4]];`
+	input := `matrix: int[][] = [[1, 2], [3, 4]]`
 	l := lexer.New(input)
 	p := New(l)
 	program := p.ParseProgram()
@@ -442,6 +442,147 @@ func TestDebugTypedNestedArrayAssignment(t *testing.T) {
 		t.Errorf("typeAnnotation.Name not %s. got=%s", "int[][]", typeAnnotation.Name)
 	}
 }
+
+/*
+func TestFunctionDefinitions(t *testing.T) {
+	tests := []struct {
+		input            string
+		expectedName     string
+		expectedParams   []string
+		expectedParamTypes []string
+		hasReturnType    bool
+		expectedReturnType string
+	}{
+		{
+			`def no_params()
+				"hello world"
+			end`,
+			"no_params",
+			[]string{},
+			[]string{},
+			false,
+			"",
+		},
+		{
+			`def add_numbers(x, y)
+				x + y
+			end`,
+			"add_numbers",
+			[]string{"x", "y"},
+			[]string{},
+			false,
+			"",
+		},
+		{
+			`def add_ints(x: int, y: int): int
+				x + y
+			end`,
+			"add_ints",
+			[]string{"x", "y"},
+			[]string{"int", "int"},
+			true,
+			"int",
+		},
+		{
+			`def multiply(x: int, y: int): int
+				return x * y
+			end`,
+			"multiply",
+			[]string{"x", "y"},
+			[]string{"int", "int"},
+			true,
+			"int",
+		},
+		{
+			`def process(x, y: string, z: int): bool
+				true
+			end`,
+			"process",
+			[]string{"x", "y", "z"},
+			[]string{"", "string", "int"},
+			true,
+			"bool",
+		},
+		{
+			`def square(n: int): int n * n end`,
+			"square",
+			[]string{"n"},
+			[]string{"int"},
+			true,
+			"int",
+		},
+	}
+
+	for _, tt := range tests {
+		l := lexer.New(tt.input)
+		p := New(l)
+		program := p.ParseProgram()
+		checkParserErrors(t, p)
+
+		if len(program.Statements) != 1 {
+			t.Fatalf("program.Statements does not contain 1 statement. got=%d",
+				len(program.Statements))
+		}
+
+		stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+		if !ok {
+			t.Fatalf("program.Statements[0] is not ast.ExpressionStatement. got=%T",
+				program.Statements[0])
+		}
+
+		functionLit, ok := stmt.Expression.(*ast.FunctionLiteral)
+		if !ok {
+			t.Fatalf("stmt.Expression is not ast.FunctionLiteral. got=%T",
+				stmt.Expression)
+		}
+
+		if functionLit.Name.Value != tt.expectedName {
+			t.Errorf("function name not '%s'. got=%s", tt.expectedName, functionLit.Name.Value)
+		}
+
+		if len(functionLit.Parameters) != len(tt.expectedParams) {
+			t.Fatalf("function literal has wrong parameters. expected=%d, got=%d",
+				len(tt.expectedParams), len(functionLit.Parameters))
+		}
+
+		for i, param := range functionLit.Parameters {
+			if param.Value != tt.expectedParams[i] {
+				t.Errorf("parameter %d has wrong name. expected=%q, got=%q",
+					i, tt.expectedParams[i], param.Value)
+			}
+
+			// Check parameter type if expected
+			if i < len(tt.expectedParamTypes) && tt.expectedParamTypes[i] != "" {
+				if i >= len(functionLit.ParamTypes) || functionLit.ParamTypes[i] == nil {
+					t.Errorf("parameter %d (%s) missing type annotation. expected=%q",
+						i, param.Value, tt.expectedParamTypes[i])
+					continue
+				}
+
+				typeAnnotation := functionLit.ParamTypes[i]
+				if typeAnnotation.Name != tt.expectedParamTypes[i] {
+					t.Errorf("parameter %d has wrong type. expected=%q, got=%q",
+						i, tt.expectedParamTypes[i], typeAnnotation.Name)
+				}
+			}
+		}
+
+		// Check return type
+		if tt.hasReturnType {
+			if functionLit.ReturnType == nil {
+				t.Errorf("function missing return type. expected=%q", tt.expectedReturnType)
+			} else {
+				if functionLit.ReturnType.Name != tt.expectedReturnType {
+					t.Errorf("function has wrong return type. expected=%q, got=%q",
+						tt.expectedReturnType, functionLit.ReturnType.Name)
+				}
+			}
+		} else if functionLit.ReturnType != nil {
+			t.Errorf("function has unexpected return type. got=%v", functionLit.ReturnType.Name)
+		}
+	}
+}
+*/
 
 func checkParserErrors(t *testing.T, p *Parser) {
 	errors := p.Errors()
