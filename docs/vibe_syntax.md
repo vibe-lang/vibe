@@ -9,79 +9,80 @@ This guide documents the syntax and features of the Vibe programming language, a
 3. [Operators](#operators)
 4. [Control Structures](#control-structures)
 5. [Functions](#functions)
-6. [Classes and Objects](#classes-and-objects)
-7. [Comments](#comments)
-8. [String Interpolation](#string-interpolation)
+6. [Arrays](#arrays)
+7. [Classes and Objects](#classes-and-objects)
+8. [Comments](#comments)
+9. [String Interpolation](#string-interpolation)
 
 ## Variables
 
-Variables in Vibe are declared using the `let` keyword. Variable names should start with a letter or underscore and can contain letters, numbers, and underscores.
+Variables in Vibe are declared using direct assignment. Variable names should start with a letter or underscore and can contain letters, numbers, and underscores.
 
 ### Variable Declaration with Type Inference
 
 ```vibe
-let name = "Alice"
-let age = 30
-let is_student = false
+name = "Alice"
+age = 30
+is_student = false
 ```
 
 ### Variable Declaration with Type Annotation
 
 ```vibe
-let name: String = "Alice"
-let age: Int = 30
-let is_student: Boolean = false
-let salary: Float = 75000.50
+name: string = "Alice"
+age: int = 30
+is_student: boolean = false
+salary: float = 75000.50
 ```
 
 ## Types
 
 Vibe includes the following built-in types:
 
-- `Int`: Integer numbers (e.g., `42`)
-- `Float`: Floating-point numbers (e.g., `3.14`)
-- `String`: Text strings (e.g., `"hello"` or `'world'`)
-- `Boolean`: Boolean values (`true` or `false`)
-- `Nil`: The absence of a value (`nil`)
+- `int`: Integer numbers (e.g., `42`)
+- `float`: Floating-point numbers (e.g., `3.14`)
+- `string`: Text strings (e.g., `"hello"` or `'world'`)
+- `boolean`: Boolean values (`true` or `false`)
+- `nil`: The absence of a value (`nil`)
 
 ## Operators
 
 ### Arithmetic Operators
 
 ```vibe
-let a = 10
-let b = 3
+a = 10
+b = 3
 
-let sum = a + b        # Addition: 13
-let difference = a - b # Subtraction: 7
-let product = a * b    # Multiplication: 30
-let quotient = a / b   # Division: 3
-let remainder = a % b  # Modulo: 1
+sum = a + b        # Addition: 13
+difference = a - b # Subtraction: 7
+product = a * b    # Multiplication: 30
+quotient = a / b   # Division: 3
+remainder = a % b  # Modulo: 1
 ```
 
 ### Comparison Operators
 
 ```vibe
-let a = 10
-let b = 3
+a = 10
+b = 3
 
-let is_equal = a == b          # Equal to: false
-let is_not_equal = a != b      # Not equal to: true
-let is_greater = a > b         # Greater than: true
-let is_less = a < b            # Less than: false
-let is_greater_or_equal = a >= b # Greater than or equal to: true
-let is_less_or_equal = a <= b  # Less than or equal to: false
+is_equal = a == b          # Equal to: false
+is_not_equal = a != b      # Not equal to: true
+is_greater = a > b         # Greater than: true
+is_less = a < b            # Less than: false
+is_greater_or_equal = a >= b # Greater than or equal to: true
+is_less_or_equal = a <= b  # Less than or equal to: false
 ```
 
 ### Logical Operators
 
 ```vibe
-let is_true = true
-let is_false = false
+is_true = true
+is_false = false
 
-let and_result = is_true && is_false  # Logical AND: false
-let or_result = is_true || is_false   # Logical OR: true
-let not_result = !is_true             # Logical NOT: false
+and_result = is_true && is_false  # Logical AND: false
+or_result = is_true || is_false   # Logical OR: true
+not_result = !is_true             # Logical NOT: false
 ```
 
 ## Control Structures
@@ -89,13 +90,13 @@ let not_result = !is_true             # Logical NOT: false
 ### If Statements
 
 ```vibe
-if age >= 18 {
+if age >= 18
   puts("You are an adult")
-} elsif age >= 13 {
+elsif age >= 13
   puts("You are a teenager")
-} else {
+else
   puts("You are a child")
-}
+end
 ```
 
 ### If Expressions
@@ -103,50 +104,95 @@ if age >= 18 {
 If statements can also be used as expressions that return values:
 
 ```vibe
-let status = if age >= 18 {
+status = if age >= 18
   "adult"
-} else {
+else
   "minor"
-}
+end
 ```
 
 ## Functions
 
 ### Function Definition
 
-Functions in Vibe are defined using the `func` keyword.
+Functions in Vibe are defined using the `def` keyword and end with the `end` keyword.
 
 ```vibe
-func greet(name: String): String {
-  return "Hello, #{name}!"
-}
+def greet(name: string): string
+  "Hello, #{name}!"
+end
+```
+
+### Function with Multiple Parameters and Type Annotations
+
+```vibe
+def add_numbers(x: int, y: int): int
+  x + y
+end
+```
+
+### Function with Multiple Parameters Sharing a Type Annotation
+
+```vibe
+def process(x, y: string, z: int): boolean
+  # Parameters x and y share the same type annotation
+  true
+end
 ```
 
 ### Function Calls
 
 ```vibe
-let message = greet("World")
+message = greet("World")
 puts(message)  # Output: Hello, World!
 ```
 
-### Functions without Return Values
-
-If a function doesn't specify a return type, it implicitly returns `nil`.
+### Functions with Explicit Return
 
 ```vibe
-func display_info(name: String, age: Int) {
-  puts("Name: #{name}, Age: #{age}")
-}
+def multiply(x: int, y: int): int
+  return x * y
+end
 ```
 
-### Anonymous Functions
+### Functions with Implicit Return
+
+The last expression in a function body is implicitly returned.
 
 ```vibe
-let add = func(a: Int, b: Int): Int {
-  return a + b
-}
+def subtract(a: int, b: int): int
+  a - b  # This value is returned
+end
+```
 
-let result = add(3, 4)  # Result: 7
+### One-line Function Definition
+
+```vibe
+def square(n: int): int n * n end
+```
+
+## Arrays
+
+### Array Declaration
+
+```vibe
+empty = []
+numbers = [1, 2, 3]
+names = ["Alice", "Bob", "Charlie"]
+```
+
+### Typed Arrays
+
+```vibe
+integers: int[] = [1, 2, 3]
+strings: string[] = ["hello", "world"]
+```
+
+### Nested Arrays
+
+```vibe
+matrix = [[1, 2], [3, 4]]
+nested: int[][] = [[1, 2], [3, 4]]
 ```
 
 ## Classes and Objects
@@ -154,29 +200,29 @@ let result = add(3, 4)  # Result: 7
 ### Class Definition
 
 ```vibe
-class Person {
-  prop name: String
-  prop age: Int
+class Person
+  prop name: string
+  prop age: int
 
-  func initialize(name: String, age: Int) {
+  def initialize(name: string, age: int)
     @name = name
     @age = age
-  }
+  end
 
-  func describe(): String {
-    return "#{@name} is #{@age} years old"
-  }
+  def describe(): string
+    "#{@name} is #{@age} years old"
+  end
 
-  func have_birthday() {
+  def have_birthday()
     @age = @age + 1
-  }
-}
+  end
+end
 ```
 
 ### Creating Objects
 
 ```vibe
-let alice = Person.new("Alice", 30)
+alice = Person.new("Alice", 30)
 puts(alice.describe())  # Output: Alice is 30 years old
 
 alice.have_birthday()
@@ -188,9 +234,9 @@ puts(alice.describe())  # Output: Alice is 31 years old
 Instance variables are prefixed with `@` and are accessible within instance methods.
 
 ```vibe
-func describe(): String {
-  return "My name is @{name} and I am @{age} years old"
-}
+def describe(): string
+  "My name is #{@name} and I am #{@age} years old"
+end
 ```
 
 ## Comments
@@ -199,7 +245,7 @@ Vibe supports single-line comments using the `#` character:
 
 ```vibe
 # This is a comment
-let x = 42  # This is an end-of-line comment
+x = 42  # This is an end-of-line comment
 ```
 
 ## String Interpolation
@@ -207,9 +253,22 @@ let x = 42  # This is an end-of-line comment
 String interpolation allows you to embed expressions inside string literals:
 
 ```vibe
-let name = "Alice"
-let age = 30
-let message = "Hello, my name is #{name} and I am #{age} years old"
+name = "Alice"
+age = 30
+message = "Hello, my name is #{name} and I am #{age} years old"
 ```
 
 In the above example, `#{name}` will be replaced with the value of the `name` variable, and `#{age}` will be replaced with the value of the `age` variable.
+
+## Structs
+
+Vibe supports struct definitions for creating user-defined compound types:
+
+```vibe
+struct Point
+  x: int
+  y: int
+end
+
+p = Point(x: 10, y: 20)
+```
