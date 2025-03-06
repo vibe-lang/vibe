@@ -17,7 +17,7 @@ import (
 // - Generate a string representation of the node for debugging
 type Node interface {
 	TokenLiteral() string // Returns the literal value of the token
-	String() string       // Returns a string representation for debugging
+	String() string       // Returns a string representation of the node
 }
 
 // Statement is a node that represents a statement in Vibe.
@@ -115,13 +115,20 @@ func (ls *LetStatement) String() string {
 // Type annotations provide static type information to variables, parameters,
 // and return values. They are a key feature that distinguishes Vibe from Ruby.
 type TypeAnnotation struct {
-	Token lexer.Token // the COLON token
-	Name  string      // The name of the type (e.g., "String", "Int")
+	Token            lexer.Token     // the COLON token
+	Name             string          // The name of the type (e.g., "String", "Int")
+	IsCompoundType   bool            // Whether this is a compound type like [int, string]
+	CompoundTypes    []string        // The list of types in a compound type
 }
 
 func (ta *TypeAnnotation) expressionNode() {}
 func (ta *TypeAnnotation) TokenLiteral() string { return ta.Token.Literal }
-func (ta *TypeAnnotation) String() string { return ta.Name }
+func (ta *TypeAnnotation) String() string {
+	if ta.IsCompoundType {
+		return "[" + strings.Join(ta.CompoundTypes, ", ") + "]" + strings.TrimPrefix(ta.Name, "[...]")
+	}
+	return ta.Name
+}
 
 // ReturnStatement represents a return statement in a function.
 // Example in Vibe code: `return x;` or `return x + y;`
@@ -446,30 +453,25 @@ func (ie *IfExpression) String() string {
 	return out.String()
 }
 
-// AssignmentExpression represents a variable assignment expression in Vibe.
-// Example in Vibe code: `x = 5` or `name: String = "John"`
-//
-// An AssignmentExpression consists of:
-// - The '=' token
-// - The identifier being assigned to
-// - An optional type annotation
-// - The value being assigned
+// AssignmentExpression represents an assignment expression.
+// Example: x = 5
 type AssignmentExpression struct {
-	Token lexer.Token     // the = token
-	Name  *Identifier     // The variable name
-	Type  *TypeAnnotation // Optional type annotation (e.g., `: String`)
-	Value Expression      // The expression that produces the value
+	Token          lexer.Token // the = token
+	Name           *Identifier
+	TypeAnnotation Expression  // Optional type annotation (can be nil)
+	Value          Expression
 }
 
-func (ae *AssignmentExpression) expressionNode() {}
+func (ae *AssignmentExpression) expressionNode()      {}
 func (ae *AssignmentExpression) TokenLiteral() string { return ae.Token.Literal }
 func (ae *AssignmentExpression) String() string {
 	var out bytes.Buffer
 
 	out.WriteString(ae.Name.String())
 
-	if ae.Type != nil {
-		out.WriteString(": " + ae.Type.String())
+	if ae.TypeAnnotation != nil {
+		out.WriteString(": ")
+		out.WriteString(ae.TypeAnnotation.String())
 	}
 
 	out.WriteString(" = ")
@@ -481,21 +483,61 @@ func (ae *AssignmentExpression) String() string {
 	return out.String()
 }
 
-// TypedIdentifier is a temporary structure used during parsing.
-// It represents an identifier with a type annotation before it's
-// incorporated into a larger expression like an assignment.
+// TypedIdentifier represents an identifier with a type annotation.
+// Example: x: int
 type TypedIdentifier struct {
+	Token      lexer.Token // the identifier token
 	Identifier *Identifier
 	Type       *TypeAnnotation
 }
 
-func (ti *TypedIdentifier) expressionNode() {}
-func (ti *TypedIdentifier) TokenLiteral() string { return ti.Identifier.TokenLiteral() }
+func (ti *TypedIdentifier) expressionNode()      {}
+func (ti *TypedIdentifier) TokenLiteral() string { return ti.Token.Literal }
 func (ti *TypedIdentifier) String() string {
 	var out bytes.Buffer
 	out.WriteString(ti.Identifier.String())
 	out.WriteString(": ")
 	out.WriteString(ti.Type.String())
+	return out.String()
+}
+
+// ArrayTypeAnnotation represents an array type annotation.
+// Example: int[] or string[][]
+type ArrayTypeAnnotation struct {
+	Token    lexer.Token  // the base type token
+	BaseType Expression   // the base type (can be an identifier or another type annotation)
+}
+
+func (ata *ArrayTypeAnnotation) expressionNode()      {}
+func (ata *ArrayTypeAnnotation) TokenLiteral() string { return ata.Token.Literal }
+func (ata *ArrayTypeAnnotation) String() string {
+	var out bytes.Buffer
+	out.WriteString(ata.BaseType.String())
+	out.WriteString("[]")
+	return out.String()
+}
+
+// CompoundTypeAnnotation represents a compound type annotation.
+// Example: [int, string] or [int, string][]
+type CompoundTypeAnnotation struct {
+	Token lexer.Token  // the '[' token
+	Types []Expression // the types in the compound type
+}
+
+func (cta *CompoundTypeAnnotation) expressionNode()      {}
+func (cta *CompoundTypeAnnotation) TokenLiteral() string { return cta.Token.Literal }
+func (cta *CompoundTypeAnnotation) String() string {
+	var out bytes.Buffer
+
+	types := []string{}
+	for _, t := range cta.Types {
+		types = append(types, t.String())
+	}
+
+	out.WriteString("[")
+	out.WriteString(strings.Join(types, ", "))
+	out.WriteString("]")
+
 	return out.String()
 }
 
@@ -517,6 +559,84 @@ func (al *ArrayLiteral) String() string {
 
 	elements := []string{}
 	for _, el := range al.Elements {
+		elements = append(elements, el.String())
+	}
+
+	out.WriteString("[")
+	out.WriteString(strings.Join(elements, ", "))
+	out.WriteString("]")
+
+	return out.String()
+}
+
+// StructStatement represents a struct definition in Vibe.
+// Structs are user-defined types that contain a collection of fields.
+type StructStatement struct {
+	Token      lexer.Token       // The 'struct' token
+	Name       *Identifier       // Name of the struct
+	Fields     []Statement         // Fields defined in the struct
+}
+
+func (ss *StructStatement) statementNode() {}
+func (ss *StructStatement) TokenLiteral() string { return ss.Token.Literal }
+func (ss *StructStatement) String() string {
+	var out bytes.Buffer
+
+	out.WriteString("struct ")
+	out.WriteString(ss.Name.String())
+	out.WriteString("\n")
+
+	for _, field := range ss.Fields {
+		out.WriteString(field.String())
+		out.WriteString("\n")
+	}
+
+	out.WriteString("end")
+
+	return out.String()
+}
+
+// StructLiteral represents a struct instantiation expression.
+// It creates a new instance of a struct.
+type StructLiteral struct {
+	Token      lexer.Token                   // The struct type name token
+	Type       string                          // Name of the struct type
+	Fields     map[string]Expression           // Named field values
+}
+
+func (sl *StructLiteral) expressionNode() {}
+func (sl *StructLiteral) TokenLiteral() string { return sl.Token.Literal }
+func (sl *StructLiteral) String() string {
+	var out bytes.Buffer
+
+	out.WriteString(sl.Type)
+	out.WriteString("(")
+
+	pairs := []string{}
+	for key, value := range sl.Fields {
+		pairs = append(pairs, key + ": " + value.String())
+	}
+	out.WriteString(strings.Join(pairs, ", "))
+
+	out.WriteString(")")
+
+	return out.String()
+}
+
+// CompoundLiteral represents a compound literal (heterogeneous tuple) expression.
+// Example: [1, "hello", true] with type [int, string, boolean]
+type CompoundLiteral struct {
+	Token    lexer.Token // the '[' token
+	Elements []Expression
+}
+
+func (cl *CompoundLiteral) expressionNode()      {}
+func (cl *CompoundLiteral) TokenLiteral() string { return cl.Token.Literal }
+func (cl *CompoundLiteral) String() string {
+	var out bytes.Buffer
+
+	elements := []string{}
+	for _, el := range cl.Elements {
 		elements = append(elements, el.String())
 	}
 

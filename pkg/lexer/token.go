@@ -63,7 +63,6 @@ const (
 
 	// Keywords
 	FUNCTION = "FUNCTION" // 'func' keyword for function definitions
-	LET      = "LET"      // 'let' keyword for variable declarations
 	TRUE     = "TRUE"     // 'true' boolean literal
 	FALSE    = "FALSE"    // 'false' boolean literal
 	IF       = "IF"       // 'if' conditional statement
@@ -73,6 +72,9 @@ const (
 	CLASS    = "CLASS"    // 'class' keyword for class definitions
 	PROP     = "PROP"     // 'prop' keyword for class property declarations
 	NIL      = "NIL"      // 'nil' value (similar to null in other languages)
+	STRUCT   = "STRUCT"   // 'struct' keyword for struct definitions
+	END      = "END"      // 'end' keyword to close blocks like struct definitions
+	LET      = "LET"      // 'let' keyword for variable declarations
 )
 
 // Keywords map associates keyword strings with their corresponding token types.
@@ -80,8 +82,7 @@ const (
 // For example, when the lexer encounters "func", it checks this map to see
 // if it should categorize it as an IDENT or FUNCTION token.
 var keywords = map[string]TokenType{
-	"func":      FUNCTION,
-	"let":       LET,
+	"def":      FUNCTION,
 	"true":      TRUE,
 	"false":     FALSE,
 	"if":        IF,
@@ -91,6 +92,8 @@ var keywords = map[string]TokenType{
 	"class":     CLASS,
 	"prop":      PROP,
 	"nil":       NIL,
+	"struct":    STRUCT,
+	"end":       END,
 }
 
 // LookupIdent checks if the given identifier is a keyword.

@@ -104,92 +104,100 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
-			tok = Token{Type: EQ, Literal: string(ch) + string(l.ch)}
+			tok = Token{Type: EQ, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
 		} else {
-			tok = Token{Type: ASSIGN, Literal: string(l.ch)}
+			tok = Token{Type: ASSIGN, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
 	case '+':
-		tok = Token{Type: PLUS, Literal: string(l.ch)}
+		tok = Token{Type: PLUS, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '-':
-		tok = Token{Type: MINUS, Literal: string(l.ch)}
+		tok = Token{Type: MINUS, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '!':
 		if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
-			tok = Token{Type: NOT_EQ, Literal: string(ch) + string(l.ch)}
+			tok = Token{Type: NOT_EQ, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
 		} else {
-			tok = Token{Type: BANG, Literal: string(l.ch)}
+			tok = Token{Type: BANG, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
 	case '*':
-		tok = Token{Type: ASTERISK, Literal: string(l.ch)}
+		tok = Token{Type: ASTERISK, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '/':
 		if l.peekChar() == '/' {
 			// Comment, skip until end of line
 			l.skipComment()
 			return l.NextToken()
 		} else {
-			tok = Token{Type: SLASH, Literal: string(l.ch)}
+			tok = Token{Type: SLASH, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
 	case '%':
-		tok = Token{Type: MODULO, Literal: string(l.ch)}
+		tok = Token{Type: MODULO, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '<':
 		if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
-			tok = Token{Type: LTE, Literal: string(ch) + string(l.ch)}
+			tok = Token{Type: LTE, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
 		} else {
-			tok = Token{Type: LT, Literal: string(l.ch)}
+			tok = Token{Type: LT, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
 	case '>':
 		if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
-			tok = Token{Type: GTE, Literal: string(ch) + string(l.ch)}
+			tok = Token{Type: GTE, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
 		} else {
-			tok = Token{Type: GT, Literal: string(l.ch)}
+			tok = Token{Type: GT, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
 	case ';':
-		tok = Token{Type: SEMICOLON, Literal: string(l.ch)}
+		tok = Token{Type: SEMICOLON, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case ':':
-		tok = Token{Type: COLON, Literal: string(l.ch)}
+		tok = Token{Type: COLON, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case ',':
-		tok = Token{Type: COMMA, Literal: string(l.ch)}
+		tok = Token{Type: COMMA, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '.':
-		tok = Token{Type: DOT, Literal: string(l.ch)}
+		tok = Token{Type: DOT, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '(':
-		tok = Token{Type: LPAREN, Literal: string(l.ch)}
+		tok = Token{Type: LPAREN, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case ')':
-		tok = Token{Type: RPAREN, Literal: string(l.ch)}
+		tok = Token{Type: RPAREN, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '{':
-		tok = Token{Type: LBRACE, Literal: string(l.ch)}
+		tok = Token{Type: LBRACE, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '}':
-		tok = Token{Type: RBRACE, Literal: string(l.ch)}
+		tok = Token{Type: RBRACE, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '[':
-		tok = Token{Type: LBRACKET, Literal: string(l.ch)}
+		tok = Token{Type: LBRACKET, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case ']':
-		tok = Token{Type: RBRACKET, Literal: string(l.ch)}
+		tok = Token{Type: RBRACKET, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '#':
-		tok = Token{Type: HASH, Literal: string(l.ch)}
+		tok = Token{Type: HASH, Literal: string(l.ch), Line: l.line, Column: l.column}
 		// Skip the rest of the line after a comment character
 		l.skipComment()
 	case '"':
 		tok.Type = STRING
 		tok.Literal = l.readString()
+		tok.Line = l.line
+		tok.Column = l.column
 	case '\'':
 		tok.Type = STRING
 		tok.Literal = l.readString()
+		tok.Line = l.line
+		tok.Column = l.column
 	case 0:
 		tok.Type = EOF
 		tok.Literal = ""
+		tok.Line = l.line
+		tok.Column = l.column
 	default:
 		if isLetter(l.ch) {
 			tok.Literal = l.readIdentifier()
 			tok.Type = LookupIdent(tok.Literal)
+			tok.Line = l.line
+			tok.Column = l.column
 			return tok
 		} else if isDigit(l.ch) {
 			return l.readNumber()
 		} else {
-			tok = Token{Type: ILLEGAL, Literal: string(l.ch)}
+			tok = Token{Type: ILLEGAL, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
 	}
 
@@ -248,9 +256,9 @@ func (l *Lexer) readNumber() Token {
 
 	literal := l.input[position:l.position]
 	if isFloat {
-		return Token{Type: FLOAT, Literal: literal}
+		return Token{Type: FLOAT, Literal: literal, Line: l.line, Column: l.column}
 	}
-	return Token{Type: INT, Literal: literal}
+	return Token{Type: INT, Literal: literal, Line: l.line, Column: l.column}
 }
 
 // readString reads a string literal from the input.

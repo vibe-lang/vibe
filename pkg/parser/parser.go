@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/vibe-lang/vibe/pkg/ast"
 	"github.com/vibe-lang/vibe/pkg/lexer"
@@ -83,7 +84,7 @@ var precedences = map[lexer.TokenType]int{
 //
 // Example:
 //
-//	l := lexer.New("let x = 5;")
+//	l := lexer.New("x = 5;")
 //	p := parser.New(l)
 //	program := p.ParseProgram()
 func New(l *lexer.Lexer) *Parser {
@@ -163,87 +164,37 @@ func (p *Parser) nextToken() {
 	p.peekToken = p.l.NextToken()
 }
 
-// ParseProgram parses a complete Vibe program.
-// This is the entry point for parsing and returns the root of the AST.
-//
-// The program is the root node of the AST and contains all the statements
-// that make up the Vibe program.
-//
-// Example:
-//
-//	program := parser.ParseProgram()
-//	// program now contains the AST representation of the source code
+// ParseProgram parses a complete program.
+// It parses statements until it encounters an EOF token.
 func (p *Parser) ParseProgram() *ast.Program {
 	program := &ast.Program{}
 	program.Statements = []ast.Statement{}
 
 	for !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		program.Statements = append(program.Statements, stmt)
+		if stmt != nil {
+			program.Statements = append(program.Statements, stmt)
+		}
 		p.nextToken()
 	}
 
 	return program
 }
 
-// parseStatement parses a single statement.
-// It decides what type of statement to parse based on the current token.
+// parseStatement parses a statement.
+// It dispatches to the appropriate parsing function based on the current token.
 func (p *Parser) parseStatement() ast.Statement {
 	switch p.curToken.Type {
-	case lexer.LET:
-		return p.parseLetStatement()
 	case lexer.RETURN:
 		return p.parseReturnStatement()
-	case lexer.PROP:
-		return p.parsePropertyStatement()
+	case lexer.STRUCT:
+		return p.parseStructStatement()
+	case lexer.SEMICOLON:
+		// Skip semicolons
+		return nil
 	default:
 		return p.parseExpressionStatement()
 	}
-}
-
-// parseLetStatement parses a variable declaration statement.
-// Format: let <identifier> [: <type>] = <expression>;
-//
-// Example Vibe code:
-//
-//	let x = 5;
-//	let name: String = "John";
-func (p *Parser) parseLetStatement() *ast.LetStatement {
-	stmt := &ast.LetStatement{Token: p.curToken}
-
-	if !p.expectPeek(lexer.IDENT) {
-		return nil
-	}
-
-	stmt.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
-
-	// Check for type annotation
-	if p.peekTokenIs(lexer.COLON) {
-		p.nextToken() // consume the colon
-		p.nextToken() // move to the type name
-		if !p.curTokenIs(lexer.IDENT) {
-			p.addError("expected type name after colon")
-			return nil
-		}
-		stmt.Type = &ast.TypeAnnotation{
-			Token: p.curToken,
-			Name:  p.curToken.Literal,
-		}
-	}
-
-	if !p.expectPeek(lexer.ASSIGN) {
-		return nil
-	}
-
-	p.nextToken()
-
-	stmt.Value = p.parseExpression(LOWEST)
-
-	if p.peekTokenIs(lexer.SEMICOLON) {
-		p.nextToken()
-	}
-
-	return stmt
 }
 
 // parseReturnStatement parses a return statement.
@@ -271,39 +222,6 @@ func (p *Parser) parseReturnStatement() *ast.ReturnStatement {
 	return stmt
 }
 
-// parsePropertyStatement parses a property declaration in a class.
-// Format: prop <identifier> [: <type>];
-//
-// Example Vibe code:
-//
-//	prop name: String;
-//	prop age: Int;
-func (p *Parser) parsePropertyStatement() *ast.PropertyStatement {
-	stmt := &ast.PropertyStatement{Token: p.curToken}
-
-	if !p.expectPeek(lexer.IDENT) {
-		return nil
-	}
-
-	stmt.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
-
-	// Check for type annotation
-	if p.peekTokenIs(lexer.COLON) {
-		p.nextToken() // consume the colon
-		p.nextToken() // move to the type name
-		if !p.curTokenIs(lexer.IDENT) {
-			p.addError("expected type name after colon")
-			return nil
-		}
-		stmt.Type = &ast.TypeAnnotation{
-			Token: p.curToken,
-			Name:  p.curToken.Literal,
-		}
-	}
-
-	return stmt
-}
-
 // parseExpressionStatement parses a statement that consists of just an expression.
 // Format: <expression>;
 //
@@ -313,9 +231,9 @@ func (p *Parser) parsePropertyStatement() *ast.PropertyStatement {
 //	foo();
 func (p *Parser) parseExpressionStatement() *ast.ExpressionStatement {
 	stmt := &ast.ExpressionStatement{Token: p.curToken}
-
 	stmt.Expression = p.parseExpression(LOWEST)
 
+	// Optional semicolon
 	if p.peekTokenIs(lexer.SEMICOLON) {
 		p.nextToken()
 	}
@@ -323,12 +241,7 @@ func (p *Parser) parseExpressionStatement() *ast.ExpressionStatement {
 	return stmt
 }
 
-// parseExpression parses an expression with the specified precedence.
-// This is the core of the Pratt parsing algorithm, which uses precedence
-// to correctly handle operator associativity and precedence.
-//
-// The precedence parameter determines how "greedy" the parser should be
-// in consuming tokens for the current expression.
+// parseExpression parses an expression with the given precedence.
 func (p *Parser) parseExpression(precedence int) ast.Expression {
 	prefix := p.prefixParseFns[p.curToken.Type]
 	if prefix == nil {
@@ -337,6 +250,55 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 	}
 	leftExp := prefix()
 
+	// Check for assignment expression
+	if p.peekTokenIs(lexer.ASSIGN) {
+		if _, ok := leftExp.(*ast.Identifier); ok {
+			return p.parseAssignmentExpression(leftExp)
+		}
+	}
+
+	// Check for type annotation
+	if p.peekTokenIs(lexer.COLON) {
+		if ident, ok := leftExp.(*ast.Identifier); ok {
+			p.nextToken() // consume the identifier
+			p.nextToken() // consume the colon
+
+			// Parse the type annotation
+			typeAnnotation := p.parseTypeAnnotation()
+
+			// Check for assignment
+			if p.peekTokenIs(lexer.ASSIGN) {
+				// Create an assignment expression with type annotation
+				p.nextToken() // consume the type
+
+				// Create an assignment expression
+				stmt := &ast.AssignmentExpression{
+					Token: p.curToken,
+					Name: ident,
+					TypeAnnotation: typeAnnotation,
+				}
+
+				p.nextToken() // consume the equals sign
+				stmt.Value = p.parseExpression(LOWEST)
+
+				return stmt
+			}
+
+			// Just a typed identifier without assignment
+			typeAnno, ok := typeAnnotation.(*ast.TypeAnnotation)
+			if !ok {
+				p.addError(fmt.Sprintf("expected type annotation, got %T", typeAnnotation))
+				return nil
+			}
+
+			return &ast.TypedIdentifier{
+				Token: ident.Token,
+				Identifier: ident,
+				Type: typeAnno,
+			}
+		}
+	}
+
 	for !p.peekTokenIs(lexer.SEMICOLON) && precedence < p.peekPrecedence() {
 		infix := p.infixParseFns[p.peekToken.Type]
 		if infix == nil {
@@ -344,7 +306,6 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 		}
 
 		p.nextToken()
-
 		leftExp = infix(leftExp)
 	}
 
@@ -359,6 +320,14 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 //	x
 //	myFunction
 func (p *Parser) parseIdentifier() ast.Expression {
+	// First, check if this is a struct instantiation
+	if p.peekTokenIs(lexer.LPAREN) {
+		// Look for a matching struct definition
+		// For now, we'll assume any identifier followed by parentheses
+		// could be a struct constructor
+		return p.parseStructLiteral()
+	}
+
 	// Check if this might be an identifier with a type annotation (for assignments)
 	if p.peekTokenIs(lexer.COLON) {
 		ident := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
@@ -367,47 +336,121 @@ func (p *Parser) parseIdentifier() ast.Expression {
 		p.nextToken()
 
 		// Parse the type name
-		if !p.peekTokenIs(lexer.IDENT) {
+		if !p.peekTokenIs(lexer.IDENT) && !p.peekTokenIs(lexer.LBRACKET) {
 			p.addError(fmt.Sprintf("expected type name after ':', got %s", p.peekToken.Type))
 			return ident
 		}
 
 		p.nextToken()
-		typeName := p.curToken.Literal
 
-		// Check for array type notation (e.g., "int[]")
-		if p.peekTokenIs(lexer.LBRACKET) {
-			p.nextToken() // consume [
-
-			// Expect ] to complete the array type notation
-			if !p.peekTokenIs(lexer.RBRACKET) {
-				p.addError(fmt.Sprintf("expected ']' to complete array type, got %s", p.peekToken.Type))
-				return ident
+		// Handle compound type annotation like [int, string]
+		if p.curTokenIs(lexer.LBRACKET) {
+			typeAnnotation := &ast.TypeAnnotation{
+				Token: p.curToken,
+				IsCompoundType: true,
+				CompoundTypes: []string{},
 			}
 
-			p.nextToken() // consume ]
-			typeName += "[]"
-		}
+			// Parse the types inside the brackets
+			for {
+				if !p.peekTokenIs(lexer.IDENT) {
+					if p.peekTokenIs(lexer.RBRACKET) {
+						// Empty brackets or end of list
+						p.nextToken()
+						break
+					}
+					p.addError(fmt.Sprintf("expected type name in compound type, got %s", p.peekToken.Type))
+					return ident
+				}
 
-		typeAnnotation := &ast.TypeAnnotation{
-			Token: p.curToken,
-			Name:  typeName,
-		}
+				p.nextToken() // move to the type name
+				typeAnnotation.CompoundTypes = append(typeAnnotation.CompoundTypes, p.curToken.Literal)
 
-		// If the next token is ASSIGN, we're in a typed assignment
-		if p.peekTokenIs(lexer.ASSIGN) {
-			// Create a temporary Identifier/TypeAnnotation pair
-			// This will be converted to an AssignmentExpression later
+				p.nextToken() // move past the type name
+
+				if p.curTokenIs(lexer.RBRACKET) {
+					break // End of compound type
+				}
+
+				if !p.curTokenIs(lexer.COMMA) {
+					p.addError(fmt.Sprintf("expected ',' or ']' in compound type, got %s", p.curToken.Type))
+					return ident
+				}
+			}
+
+			// Set the full type name
+			typeName := "[" + strings.Join(typeAnnotation.CompoundTypes, ", ") + "]"
+
+			// Check for array dimensions
+			for p.peekTokenIs(lexer.LBRACKET) {
+				p.nextToken() // consume [
+
+				// Expect ] to complete the array type notation
+				if !p.peekTokenIs(lexer.RBRACKET) {
+					p.addError(fmt.Sprintf("expected ']' to complete array type, got %s", p.peekToken.Type))
+					return ident
+				}
+
+				p.nextToken() // consume ]
+				typeName += "[]"
+			}
+
+			typeAnnotation.Name = typeName
+
+			// If the next token is ASSIGN, we're in a typed assignment
+			if p.peekTokenIs(lexer.ASSIGN) {
+				// Create a temporary Identifier/TypeAnnotation pair
+				// This will be converted to an AssignmentExpression later
+				return &ast.TypedIdentifier{
+					Identifier: ident,
+					Type:       typeAnnotation,
+				}
+			}
+
+			// Otherwise, this is a typed identifier (e.g., in a parameter list)
 			return &ast.TypedIdentifier{
 				Identifier: ident,
 				Type:       typeAnnotation,
 			}
-		}
+		} else {
+			// Regular type annotation
+			typeName := p.curToken.Literal
 
-		// Otherwise, this is a typed identifier (e.g., in a parameter list)
-		return &ast.TypedIdentifier{
-			Identifier: ident,
-			Type:       typeAnnotation,
+			// Check for array type notation (e.g., "int[]" or "int[][]")
+			// Continue checking for array dimensions until there are no more []
+			for p.peekTokenIs(lexer.LBRACKET) {
+				p.nextToken() // consume [
+
+				// Expect ] to complete the array type notation
+				if !p.peekTokenIs(lexer.RBRACKET) {
+					p.addError(fmt.Sprintf("expected ']' to complete array type, got %s", p.peekToken.Type))
+					return ident
+				}
+
+				p.nextToken() // consume ]
+				typeName += "[]"
+			}
+
+			typeAnnotation := &ast.TypeAnnotation{
+				Token: p.curToken,
+				Name:  typeName,
+			}
+
+			// If the next token is ASSIGN, we're in a typed assignment
+			if p.peekTokenIs(lexer.ASSIGN) {
+				// Create a temporary Identifier/TypeAnnotation pair
+				// This will be converted to an AssignmentExpression later
+				return &ast.TypedIdentifier{
+					Identifier: ident,
+					Type:       typeAnnotation,
+				}
+			}
+
+			// Otherwise, this is a typed identifier (e.g., in a parameter list)
+			return &ast.TypedIdentifier{
+				Identifier: ident,
+				Type:       typeAnnotation,
+			}
 		}
 	}
 
@@ -640,49 +683,170 @@ func (p *Parser) parseCallExpression(function ast.Expression) ast.Expression {
 //
 //	x = 5;
 //	name = "John";
-func (p *Parser) parseAssignmentExpression(left ast.Expression) ast.Expression {
-	var name *ast.Identifier
-	var typeAnnotation *ast.TypeAnnotation
+func (p *Parser) parseAssignmentExpression(name ast.Expression) ast.Expression {
+	stmt := &ast.AssignmentExpression{Token: p.curToken}
 
-	// Check if we have a simple identifier or a typed identifier
-	if typedIdent, ok := left.(*ast.TypedIdentifier); ok {
-		name = typedIdent.Identifier
-		typeAnnotation = typedIdent.Type
-	} else if ident, ok := left.(*ast.Identifier); ok {
-		name = ident
-		typeAnnotation = nil
+	// Check if the left side is an identifier or a typed identifier
+	if ident, ok := name.(*ast.Identifier); ok {
+		stmt.Name = ident
+	} else if typedIdent, ok := name.(*ast.TypedIdentifier); ok {
+		stmt.Name = typedIdent.Identifier
+		stmt.TypeAnnotation = typedIdent.Type
 	} else {
-		p.addError(fmt.Sprintf("expected identifier, got %T", left))
+		p.errors = append(p.errors, fmt.Sprintf("expected identifier on left side of assignment, got %s", name.TokenLiteral()))
 		return nil
 	}
 
-	// Initialize assignment expression
-	expression := &ast.AssignmentExpression{
-		Token: p.curToken,  // the = token
-		Name:  name,
-		Type:  typeAnnotation,
+	// Check for type annotation if not already set from a TypedIdentifier
+	if stmt.TypeAnnotation == nil && p.peekTokenIs(lexer.COLON) {
+		p.nextToken() // consume the colon
+		p.nextToken() // move to the type
+
+		// Parse the type annotation
+		stmt.TypeAnnotation = p.parseTypeAnnotation()
+		if stmt.TypeAnnotation == nil {
+			return nil
+		}
+
+		// Check for compound type annotation like [int, string]
+		if _, ok := stmt.TypeAnnotation.(*ast.CompoundTypeAnnotation); ok {
+			// If the value is an array literal, convert it to a compound literal
+			p.nextToken() // move to the equals sign
+			p.nextToken() // move to the value
+
+			if p.curTokenIs(lexer.LBRACKET) {
+				// Parse the value as a compound literal
+				stmt.Value = p.parseCompoundLiteral()
+				return stmt
+			}
+		}
+
+		// Expect equals sign after type annotation
+		if !p.expectPeek(lexer.ASSIGN) {
+			return nil
+		}
+	} else if stmt.TypeAnnotation == nil {
+		// No type annotation, expect equals sign
+		if !p.expectPeek(lexer.ASSIGN) {
+			return nil
+		}
 	}
 
-	// Parse the value
-	p.nextToken()
-	expression.Value = p.parseExpression(LOWEST)
+	p.nextToken() // move to the value
+	stmt.Value = p.parseExpression(LOWEST)
 
-	return expression
+	return stmt
 }
 
-// parseArrayLiteral parses an array literal.
-// Array literals are used to create arrays of values.
-//
-// Example Vibe code:
-//
-//	[1, 2, 3]
-//	["apple", "banana", "cherry"]
+// parseTypeAnnotation parses a type annotation.
+func (p *Parser) parseTypeAnnotation() ast.Expression {
+	// Check for compound type annotation like [int, string]
+	if p.curTokenIs(lexer.LBRACKET) {
+		return p.parseCompoundTypeAnnotation()
+	}
+
+	// Simple type annotation
+	ident := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+	// Check for array type annotation
+	if p.peekTokenIs(lexer.LBRACKET) && p.peekPeekTokenIs(lexer.RBRACKET) {
+		p.nextToken() // consume the '['
+		p.nextToken() // consume the ']'
+
+		// Create an array type annotation
+		arrayType := &ast.ArrayTypeAnnotation{
+			Token:    ident.Token,
+			BaseType: ident,
+		}
+		return arrayType
+	}
+
+	return ident
+}
+
+// parseCompoundTypeAnnotation parses a compound type annotation like [int, string].
+func (p *Parser) parseCompoundTypeAnnotation() ast.Expression {
+	annotation := &ast.CompoundTypeAnnotation{
+		Token: p.curToken,
+		Types: []ast.Expression{},
+	}
+
+	p.nextToken() // consume the '['
+
+	// Parse the type list
+	for !p.curTokenIs(lexer.RBRACKET) {
+		// Parse the type
+		typeExpr := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+		annotation.Types = append(annotation.Types, typeExpr)
+
+		// Check for comma or end of list
+		if p.peekTokenIs(lexer.COMMA) {
+			p.nextToken() // consume the type
+			p.nextToken() // consume the comma
+		} else if p.peekTokenIs(lexer.RBRACKET) {
+			p.nextToken() // consume the type
+			break
+		} else {
+			p.errors = append(p.errors, fmt.Sprintf("expected comma or closing bracket, got %s", p.peekToken.Literal))
+			return nil
+		}
+	}
+
+	p.nextToken() // consume the ']'
+
+	// Check for array type annotation
+	if p.peekTokenIs(lexer.LBRACKET) && p.peekPeekTokenIs(lexer.RBRACKET) {
+		p.nextToken() // consume the '['
+		p.nextToken() // consume the ']'
+
+		// Create an array type annotation
+		return &ast.ArrayTypeAnnotation{
+			Token:    annotation.Token,
+			BaseType: annotation,
+		}
+	}
+
+	return annotation
+}
+
+// peekPeekTokenIs returns true if the token after the peek token is of the given type.
+func (p *Parser) peekPeekTokenIs(t lexer.TokenType) bool {
+	// Save the current tokens
+	savedCur := p.curToken
+	savedPeek := p.peekToken
+
+	// Advance to the next token
+	p.nextToken()
+
+	// Check if the new peek token is of the given type
+	result := p.peekTokenIs(t)
+
+	// Restore the tokens
+	p.curToken = savedCur
+	p.peekToken = savedPeek
+
+	return result
+}
+
+// parseArrayLiteral parses an array literal expression.
+// Example: [1, 2, 3]
 func (p *Parser) parseArrayLiteral() ast.Expression {
 	array := &ast.ArrayLiteral{Token: p.curToken}
 
 	array.Elements = p.parseExpressionList(lexer.RBRACKET)
 
 	return array
+}
+
+// parseCompoundLiteral parses a compound literal expression.
+// This is similar to an array literal but represents a heterogeneous tuple.
+// Example: [1, "hello", true] with type [int, string, boolean]
+func (p *Parser) parseCompoundLiteral() ast.Expression {
+	compound := &ast.CompoundLiteral{Token: p.curToken}
+
+	compound.Elements = p.parseExpressionList(lexer.RBRACKET)
+
+	return compound
 }
 
 // parseExpressionList parses a list of expressions until the end token is encountered.
@@ -713,4 +877,103 @@ func (p *Parser) parseExpressionList(end lexer.TokenType) []ast.Expression {
 	}
 
 	return list
+}
+
+// parseStructStatement parses a struct definition statement.
+// Struct definitions create a new user-defined type with fields.
+//
+// Example Vibe code:
+//
+//  struct SomeStruct
+//    n = 4
+//    l: int = 9
+//    u: string = "vibe"
+//    arr: int[] = [1, 2, 5]
+//  end
+func (p *Parser) parseStructStatement() *ast.StructStatement {
+	stmt := &ast.StructStatement{Token: p.curToken}
+
+	// Expect struct name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil
+	}
+
+	stmt.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+	// Parse fields until we reach 'end'
+	stmt.Fields = []ast.Statement{}
+
+	// Move past the struct name
+	p.nextToken()
+
+	// Keep parsing fields until we reach 'end'
+	for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
+		field := p.parseStatement()
+		if field != nil {
+			stmt.Fields = append(stmt.Fields, field)
+		}
+		p.nextToken()
+	}
+
+	if !p.curTokenIs(lexer.END) {
+		p.addError(fmt.Sprintf("expected 'end' to close struct definition, got %s", p.curToken.Type))
+		return nil
+	}
+
+	return stmt
+}
+
+// parseStructLiteral parses a struct instantiation expression
+// Example: SomeStruct() or SomeStruct(n: 10, u: "lang")
+func (p *Parser) parseStructLiteral() ast.Expression {
+	structLiteral := &ast.StructLiteral{
+		Token: p.curToken,
+		Type: p.curToken.Literal,
+		Fields: make(map[string]ast.Expression),
+	}
+
+	// Optional parentheses for fields
+	if p.peekTokenIs(lexer.LPAREN) {
+		p.nextToken() // consume (
+
+		// Handle empty field list
+		if p.peekTokenIs(lexer.RPAREN) {
+			p.nextToken() // consume )
+			return structLiteral
+		}
+
+		// Parse field: value pairs
+		for {
+			// Expect field name
+			if !p.expectPeek(lexer.IDENT) {
+				return nil
+			}
+
+			fieldName := p.curToken.Literal
+
+			// Expect colon after field name
+			if !p.expectPeek(lexer.COLON) {
+				return nil
+			}
+
+			// Parse the field value
+			p.nextToken() // move past the colon
+			fieldValue := p.parseExpression(LOWEST)
+
+			structLiteral.Fields[fieldName] = fieldValue
+
+			// Check if we've reached the end of the field list
+			if p.peekTokenIs(lexer.RPAREN) {
+				p.nextToken() // consume )
+				break
+			}
+
+			// Expect comma between fields
+			if !p.expectPeek(lexer.COMMA) {
+				return nil
+			}
+		}
+	}
+
+	return structLiteral
 }

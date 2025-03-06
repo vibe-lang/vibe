@@ -3,6 +3,7 @@ package interpreter
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/vibe-lang/vibe/pkg/ast"
@@ -37,6 +38,9 @@ const (
 	CLASS_OBJ        = "CLASS"        // Class definitions
 	INSTANCE_OBJ     = "INSTANCE"     // Class instances (objects)
 	ARRAY_OBJ        = "ARRAY"        // Array values
+	STRUCT_OBJ       = "STRUCT"       // Struct type definitions
+	STRUCT_INSTANCE_OBJ = "STRUCT_INSTANCE" // Struct instances
+	COMPOUND_OBJ     = "COMPOUND"     // Compound values (tuples)
 )
 
 // Integer represents an integer value in Vibe.
@@ -172,51 +176,48 @@ func (e *Environment) Set(name string, val Object) Object {
 	return val
 }
 
-// Interpreter represents the Vibe language interpreter.
-// It evaluates AST nodes and executes the Vibe program.
+// Interpreter evaluates AST nodes to produce values during program execution.
 type Interpreter struct {
-	env *Environment // The current environment for variable bindings
+	env *Environment
+	lastError Object // Store the last error encountered
 }
 
-// New creates a new Interpreter with a fresh global environment.
-// The global environment will be initialized with any built-in
-// functions or values that should be available to all Vibe programs.
+// New creates a new Interpreter with a fresh environment.
 func New() *Interpreter {
 	return &Interpreter{
 		env: NewEnvironment(),
 	}
 }
 
-// Eval evaluates an AST node and returns the resulting Object.
-// This is the main entry point for the interpreter. It dispatches
-// to appropriate evaluation functions based on the node type.
-//
-// The interpretation follows these principles:
-// - Expressions produce values
-// - Statements produce side effects and may return values
-// - Control structures affect the flow of execution
-//
-// Example:
-//
-//	program := parser.ParseProgram()
-//	interpreter := interpreter.New()
-//	result := interpreter.Eval(program)
+// Eval evaluates an AST node and returns the resulting object.
 func (i *Interpreter) Eval(node ast.Node) Object {
+	result := i.eval(node)
+
+	// Store error objects for later retrieval
+	if isError(result) {
+		i.lastError = result
+	}
+
+	return result
+}
+
+// eval is the internal evaluation function
+func (i *Interpreter) eval(node ast.Node) Object {
 	switch node := node.(type) {
 	// Statements
 	case *ast.Program:
 		return i.evalProgram(node)
 	case *ast.ExpressionStatement:
-		return i.Eval(node.Expression)
+		return i.eval(node.Expression)
 	case *ast.LetStatement:
-		val := i.Eval(node.Value)
+		val := i.eval(node.Value)
 		if isError(val) {
 			return val
 		}
 		i.env.Set(node.Name.Value, val)
 		return val
 	case *ast.ReturnStatement:
-		val := i.Eval(node.Value)
+		val := i.eval(node.Value)
 		if isError(val) {
 			return val
 		}
@@ -243,22 +244,35 @@ func (i *Interpreter) Eval(node ast.Node) Object {
 			return elements[0]
 		}
 		return &Array{Elements: elements}
+	case *ast.CompoundLiteral:
+		elements := i.evalExpressions(node.Elements)
+		if len(elements) == 1 && isError(elements[0]) {
+			return elements[0]
+		}
+		return &Compound{Elements: elements}
 	case *ast.Identifier:
 		return i.evalIdentifier(node)
+	case *ast.TypedIdentifier:
+		// For TypedIdentifier, we just evaluate the underlying identifier
+		// The type information is used during assignment, not during evaluation
+		return i.eval(node.Identifier)
+	case *ast.StructStatement:
+		return i.evalStructStatement(node)
+	case *ast.StructLiteral:
+		return i.evalStructLiteral(node)
 	default:
 		return newError("unknown node type: %T", node)
 	}
 }
 
-// evalProgram evaluates a program node, which is the root of the AST.
-// It evaluates each statement in sequence and handles return values and errors.
-// If a return value is encountered, its value is returned directly rather than
-// the ReturnValue wrapper, as the program boundary unwraps return values.
+// evalProgram evaluates a program node.
+// It evaluates each statement in the program and returns the result of the last statement.
+// If a return statement is encountered, it unwraps the return value and returns it.
 func (i *Interpreter) evalProgram(program *ast.Program) Object {
 	var result Object
 
 	for _, statement := range program.Statements {
-		result = i.Eval(statement)
+		result = i.eval(statement)
 
 		switch result := result.(type) {
 		case *ReturnValue:
@@ -271,14 +285,14 @@ func (i *Interpreter) evalProgram(program *ast.Program) Object {
 	return result
 }
 
-// evalBlockStatement evaluates a block of statements.
-// It creates a new scope for the block and evaluates each statement in sequence.
-// If a return value or error is encountered, it is propagated up immediately.
+// evalBlockStatement evaluates a block statement.
+// It evaluates each statement in the block and returns the result of the last statement.
+// If a return statement is encountered, it returns the return value (still wrapped).
 func (i *Interpreter) evalBlockStatement(block *ast.BlockStatement) Object {
 	var result Object
 
 	for _, statement := range block.Statements {
-		result = i.Eval(statement)
+		result = i.eval(statement)
 
 		if result != nil {
 			rt := result.Type()
@@ -291,14 +305,15 @@ func (i *Interpreter) evalBlockStatement(block *ast.BlockStatement) Object {
 	return result
 }
 
-// evalIdentifier evaluates an identifier by looking up its value in the environment.
-// If the identifier is not found, an error is returned.
+// evalIdentifier evaluates an identifier.
+// It looks up the identifier in the environment and returns its value.
+// If the identifier is not found, it returns an error.
 func (i *Interpreter) evalIdentifier(node *ast.Identifier) Object {
-	val, ok := i.env.Get(node.Value)
-	if !ok {
-		return newError("identifier not found: %s", node.Value)
+	if val, ok := i.env.Get(node.Value); ok {
+		return val
 	}
-	return val
+
+	return newError("identifier not found: %s", node.Value)
 }
 
 // Array represents an array value in Vibe.
@@ -327,89 +342,291 @@ func (a *Array) Inspect() string {
 }
 
 // evalAssignmentExpression evaluates an assignment expression.
-// It evaluates the right-hand side expression, then sets a variable with the identifier
-// name to that value. If a type annotation is present, it checks if the value matches
-// the declared type.
+// This handles both simple assignments (x = 5) and typed assignments (x: int = 5).
+// It also performs type checking for typed assignments.
 //
 // Example Vibe code:
 //
-//   x = 5                  // Simple assignment
-//   name: string = "John"  // Typed assignment
-//   nums: int[] = [1, 2]   // Typed array assignment
+//	x = 5
+//	name: string = "John"
+//	numbers: int[] = [1, 2, 3]
 func (i *Interpreter) evalAssignmentExpression(node *ast.AssignmentExpression) Object {
-	val := i.Eval(node.Value)
+	val := i.eval(node.Value)
 	if isError(val) {
 		return val
 	}
 
 	// If there's a type annotation, validate the type
-	if node.Type != nil {
-		typeName := node.Type.Name
-		isArrayType := false
-		elementTypeName := ""
+	if node.TypeAnnotation != nil {
+		// Get the type name from the annotation
+		var typeName string
 
-		// Check if it's an array type (ends with [])
-		if len(typeName) > 2 && typeName[len(typeName)-2:] == "[]" {
-			isArrayType = true
-			elementTypeName = typeName[:len(typeName)-2]
+		switch typeExpr := node.TypeAnnotation.(type) {
+		case *ast.Identifier:
+			// Simple type like 'int' or 'string'
+			typeName = typeExpr.Value
+		case *ast.ArrayTypeAnnotation:
+			// Array type like 'int[]'
+			baseType := ""
+
+			// Extract the base type name
+			if ident, ok := typeExpr.BaseType.(*ast.Identifier); ok {
+				baseType = ident.Value
+			} else if arrayType, ok := typeExpr.BaseType.(*ast.ArrayTypeAnnotation); ok {
+				// Nested array type like 'int[][]'
+				if baseIdent, ok := arrayType.BaseType.(*ast.Identifier); ok {
+					baseType = baseIdent.Value + "[]"
+				} else if compoundType, ok := arrayType.BaseType.(*ast.CompoundTypeAnnotation); ok {
+					// Compound array type like '[int, string][]'
+					baseType = compoundType.String()
+				}
+			} else if compoundType, ok := typeExpr.BaseType.(*ast.CompoundTypeAnnotation); ok {
+				// Compound array type like '[int, string][]'
+				baseType = compoundType.String()
+			}
+
+			typeName = baseType + "[]"
+		case *ast.CompoundTypeAnnotation:
+			// Compound type like '[int, string]'
+			typeName = typeExpr.String()
 		}
 
-		if isArrayType {
-			// Validate array type
-			array, ok := val.(*Array)
-			if !ok {
-				return newError("type mismatch: expected array of %s, got %s",
-					elementTypeName, val.Type())
+		// Validate the type
+		switch typeName {
+		case "int":
+			if _, ok := val.(*Integer); !ok {
+				return newError("type mismatch: expected int, got %s", val.Type())
 			}
-
-			// Validate array element types
-			for _, elem := range array.Elements {
-				elemTypeMatches := false
-				switch elementTypeName {
-				case "int":
-					_, elemTypeMatches = elem.(*Integer)
-				case "float":
-					_, elemTypeMatches = elem.(*Float)
-					// Also allow int values in float arrays
-					if !elemTypeMatches {
-						_, elemTypeMatches = elem.(*Integer)
-					}
-				case "string":
-					_, elemTypeMatches = elem.(*String)
-				case "boolean":
-					_, elemTypeMatches = elem.(*Boolean)
-				}
-
-				if !elemTypeMatches {
-					return newError("type mismatch in array: expected %s, got %s",
-						elementTypeName, elem.Type())
+		case "float":
+			if _, ok := val.(*Float); !ok {
+				// Allow integers in float context
+				if _, ok := val.(*Integer); !ok {
+					return newError("type mismatch: expected float, got %s", val.Type())
 				}
 			}
-		} else {
-			// Regular non-array type checking
-			typeMatches := false
-
-			switch typeName {
-			case "int":
-				_, typeMatches = val.(*Integer)
-			case "float":
-				_, typeMatches = val.(*Float)
-			case "string":
-				_, typeMatches = val.(*String)
-			case "boolean":
-				_, typeMatches = val.(*Boolean)
+		case "string":
+			if _, ok := val.(*String); !ok {
+				return newError("type mismatch: expected string, got %s", val.Type())
 			}
-
-			if !typeMatches {
-				return newError("type mismatch: expected %s, got %s",
-					typeName, val.Type())
+		case "boolean":
+			if _, ok := val.(*Boolean); !ok {
+				return newError("type mismatch: expected boolean, got %s", val.Type())
+			}
+		default:
+			// Check if it's an array type
+			if strings.HasSuffix(typeName, "[]") {
+				if err := i.validateArrayType(typeName, val); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
-	// Set the variable in the environment
 	i.env.Set(node.Name.Value, val)
 	return val
+}
+
+// validateArrayType checks if the value matches the array type specification
+// Handles both simple arrays (int[]) and nested arrays (int[][], int[][][], etc.)
+func (i *Interpreter) validateArrayType(typeName string, val Object) Object {
+	// Handle compound types like [int, string][]
+	if strings.HasPrefix(typeName, "[") && strings.Contains(typeName, ",") {
+		// Extract compound type definition and array dimensions
+		compoundEndIdx := strings.Index(typeName, "]")
+		if compoundEndIdx == -1 {
+			return newError("invalid compound type: %s", typeName)
+		}
+
+		// Get the compound type definition
+		compoundTypeDef := typeName[:compoundEndIdx+1]
+
+		// Count the nesting level by counting the number of "[]" occurrences
+		remainingType := typeName[compoundEndIdx+1:]
+		nestingLevel := strings.Count(remainingType, "[]")
+
+		// Check if this is an array of compound types
+		if nestingLevel > 0 {
+			// Validate the array and its elements recursively
+			array, ok := val.(*Array)
+			if !ok {
+				return newError("type mismatch: expected array of %s, got %s",
+					compoundTypeDef, val.Type())
+			}
+
+			// Parse compound type elements
+			compoundTypes := parseCompoundType(compoundTypeDef)
+
+			// Check each array element
+			for _, elem := range array.Elements {
+				// Each element should be a compound type
+				compound, ok := elem.(*Compound)
+				if !ok {
+					return newError("type mismatch in array: expected compound %s, got %s",
+						compoundTypeDef, elem.Type())
+				}
+
+				// Check if the compound has the right number of elements
+				if len(compound.Elements) != len(compoundTypes) {
+					return newError("type mismatch in array: expected compound with %d elements, got %d",
+						len(compoundTypes), len(compound.Elements))
+				}
+
+				// Check each element of the compound
+				for j, expectedType := range compoundTypes {
+					elemValue := compound.Elements[j]
+
+					if !matchesType(elemValue, expectedType) {
+						return newError("type mismatch in compound: expected %s, got %s",
+							expectedType, elemValue.Type())
+					}
+				}
+			}
+
+			return nil // No error
+		}
+
+		// Simple compound type (not an array)
+		compound, ok := val.(*Compound)
+		if !ok {
+			return newError("type mismatch: expected compound %s, got %s",
+				compoundTypeDef, val.Type())
+		}
+
+		// Parse compound type elements
+		compoundTypes := parseCompoundType(compoundTypeDef)
+
+		// Check if the compound has the right number of elements
+		if len(compound.Elements) != len(compoundTypes) {
+			return newError("type mismatch: expected compound with %d elements, got %d",
+				len(compoundTypes), len(compound.Elements))
+		}
+
+		// Check each element of the compound
+		for j, expectedType := range compoundTypes {
+			elemValue := compound.Elements[j]
+
+			if !matchesType(elemValue, expectedType) {
+				return newError("type mismatch in compound: expected %s, got %s",
+					expectedType, elemValue.Type())
+			}
+		}
+
+		return nil // No error
+	}
+
+	// Handle struct arrays
+	if !strings.HasPrefix(typeName, "[") && strings.HasSuffix(typeName, "[]") {
+		baseType := typeName[:len(typeName)-2]
+
+		// Check if it's a struct type
+		structObj, ok := i.env.Get(baseType)
+		if ok {
+			_, isStruct := structObj.(*Struct)
+			if isStruct {
+				// Validate as struct array
+				array, ok := val.(*Array)
+				if !ok {
+					return newError("type mismatch: expected array of %s, got %s",
+						baseType, val.Type())
+				}
+
+				// Check each element of the array
+				for _, elem := range array.Elements {
+					instance, ok := elem.(*StructInstance)
+					if !ok {
+						return newError("type mismatch in array: expected %s instance, got %s",
+							baseType, elem.Type())
+					}
+
+					if instance.Struct.Name != baseType {
+						return newError("type mismatch in array: expected %s instance, got %s instance",
+							baseType, instance.Struct.Name)
+					}
+				}
+
+				return nil // No error
+			}
+		}
+	}
+
+	// Count the nesting level by counting the number of "[]" occurrences
+	nestingLevel := strings.Count(typeName, "[]")
+
+	// Extract the base type (e.g., "int" from "int[][]")
+	baseType := typeName[:len(typeName)-(nestingLevel*2)]
+
+	// Validate the array and its elements recursively
+	return i.validateArrayWithDepth(baseType, val, nestingLevel)
+}
+
+// Helper function to parse a compound type string like "[int, string]"
+// Returns a slice of type names
+func parseCompoundType(compoundType string) []string {
+	// Remove brackets
+	inner := compoundType[1:len(compoundType)-1]
+
+	// Split by comma
+	parts := strings.Split(inner, ",")
+
+	// Trim whitespace
+	types := make([]string, len(parts))
+	for i, p := range parts {
+		types[i] = strings.TrimSpace(p)
+	}
+
+	return types
+}
+
+// Helper function to check if a value matches a type name
+func matchesType(val Object, typeName string) bool {
+	switch typeName {
+	case "int":
+		_, ok := val.(*Integer)
+		return ok
+	case "float":
+		_, ok := val.(*Float)
+		if ok {
+			return true
+		}
+		// Allow integers in float context
+		_, ok = val.(*Integer)
+		return ok
+	case "string":
+		_, ok := val.(*String)
+		return ok
+	case "boolean":
+		_, ok := val.(*Boolean)
+		return ok
+	default:
+		// Could be a struct type
+		if strings.HasSuffix(typeName, "[]") {
+			// Array type
+			array, ok := val.(*Array)
+			if !ok {
+				return false
+			}
+
+			// Check array elements if there are any
+			if len(array.Elements) > 0 {
+				elemTypeName := typeName[:len(typeName)-2]
+				for _, elem := range array.Elements {
+					if !matchesType(elem, elemTypeName) {
+						return false
+					}
+				}
+			}
+
+			return true
+		}
+
+		// Try struct instance
+		instance, ok := val.(*StructInstance)
+		if ok {
+			return instance.Struct.Name == typeName
+		}
+	}
+
+	return false
 }
 
 // evalExpressions evaluates a list of expressions and returns a list of objects.
@@ -418,7 +635,7 @@ func (i *Interpreter) evalExpressions(exps []ast.Expression) []Object {
 	var result []Object
 
 	for _, e := range exps {
-		evaluated := i.Eval(e)
+		evaluated := i.eval(e)
 		if isError(evaluated) {
 			return []Object{evaluated}
 		}
@@ -444,4 +661,226 @@ func isError(obj Object) bool {
 		return obj.Type() == ERROR_OBJ
 	}
 	return false
+}
+
+// GetEnvironment returns the current environment of the interpreter.
+// This is useful for testing to check the state of variables after evaluation.
+func (i *Interpreter) GetEnvironment() *Environment {
+	return i.env
+}
+
+// Struct represents a struct definition in Vibe.
+// It stores the structure of a user-defined type.
+type Struct struct {
+	Name        string
+	Fields      map[string]Object
+	DefaultValues map[string]Object
+}
+
+func (s *Struct) Type() ObjectType { return STRUCT_OBJ }
+func (s *Struct) Inspect() string {
+	var out bytes.Buffer
+
+	out.WriteString("struct ")
+	out.WriteString(s.Name)
+	out.WriteString(" { ")
+
+	// Sort the field names for consistent output
+	fieldNames := make([]string, 0, len(s.DefaultValues))
+	for name := range s.DefaultValues {
+		fieldNames = append(fieldNames, name)
+	}
+	sort.Strings(fieldNames)
+
+	fields := []string{}
+	for _, name := range fieldNames {
+		fields = append(fields, name + ": " + s.DefaultValues[name].Inspect())
+	}
+	out.WriteString(strings.Join(fields, ", "))
+
+	out.WriteString(" }")
+
+	return out.String()
+}
+
+// StructInstance represents an instance of a struct.
+// It contains the actual field values for a specific struct instance.
+type StructInstance struct {
+	Struct      *Struct
+	Fields      map[string]Object
+}
+
+func (si *StructInstance) Type() ObjectType { return STRUCT_INSTANCE_OBJ }
+func (si *StructInstance) Inspect() string {
+	var out bytes.Buffer
+
+	out.WriteString(si.Struct.Name)
+	out.WriteString("(")
+
+	// Sort the field names for consistent output
+	fieldNames := make([]string, 0, len(si.Fields))
+	for name := range si.Fields {
+		fieldNames = append(fieldNames, name)
+	}
+	sort.Strings(fieldNames)
+
+	fields := []string{}
+	for _, name := range fieldNames {
+		fields = append(fields, name + ": " + si.Fields[name].Inspect())
+	}
+	out.WriteString(strings.Join(fields, ", "))
+
+	out.WriteString(")")
+
+	return out.String()
+}
+
+// Compound represents a compound value (tuple) in Vibe.
+// It contains heterogeneous values in a fixed structure.
+type Compound struct {
+	Elements    []Object
+	ElementTypes []string
+}
+
+func (c *Compound) Type() ObjectType { return COMPOUND_OBJ }
+func (c *Compound) Inspect() string {
+	var out bytes.Buffer
+
+	out.WriteString("[")
+
+	elements := []string{}
+	for _, element := range c.Elements {
+		elements = append(elements, element.Inspect())
+	}
+	out.WriteString(strings.Join(elements, ", "))
+
+	out.WriteString("]")
+
+	return out.String()
+}
+
+// evalStructStatement evaluates a struct statement,
+// creating a new struct type definition.
+func (i *Interpreter) evalStructStatement(node *ast.StructStatement) Object {
+	// Create a new struct
+	structObj := &Struct{
+		Name: node.Name.Value,
+		Fields: make(map[string]Object),
+		DefaultValues: make(map[string]Object),
+	}
+
+	// Store the struct definition in the environment
+	i.env.Set(node.Name.Value, structObj)
+
+	// Evaluate default values for fields
+	for _, stmt := range node.Fields {
+		if exprStmt, ok := stmt.(*ast.ExpressionStatement); ok {
+			if assignment, ok := exprStmt.Expression.(*ast.AssignmentExpression); ok {
+				fieldName := assignment.Name.Value
+				fieldValue := i.eval(assignment.Value)
+
+				if isError(fieldValue) {
+					return fieldValue
+				}
+
+				structObj.Fields[fieldName] = fieldValue
+				structObj.DefaultValues[fieldName] = fieldValue
+			}
+		}
+	}
+
+	return structObj
+}
+
+// evalStructLiteral evaluates a struct literal (instantiation),
+// creating a new instance of a struct.
+func (i *Interpreter) evalStructLiteral(node *ast.StructLiteral) Object {
+	// Look up the struct definition
+	structObj, ok := i.env.Get(node.Type)
+	if !ok {
+		return newError("undefined struct type: %s", node.Type)
+	}
+
+	structType, ok := structObj.(*Struct)
+	if !ok {
+		return newError("not a struct type: %s", node.Type)
+	}
+
+	// Create a new struct instance with default values
+	instance := &StructInstance{
+		Struct: structType,
+		Fields: make(map[string]Object),
+	}
+
+	// Copy default values
+	for field, value := range structType.DefaultValues {
+		instance.Fields[field] = value
+	}
+
+	// Apply provided field values
+	for field, valueExpr := range node.Fields {
+		// Check if the field exists
+		if _, exists := structType.Fields[field]; !exists {
+			return newError("undefined field '%s' in struct '%s'", field, node.Type)
+		}
+
+		// Evaluate the field value
+		value := i.eval(valueExpr)
+		if isError(value) {
+			return value
+		}
+
+		instance.Fields[field] = value
+	}
+
+	return instance
+}
+
+// validateArrayWithDepth recursively validates arrays at the specified nesting depth
+func (i *Interpreter) validateArrayWithDepth(baseType string, val Object, depth int) Object {
+	// If depth is 0, we should check the base type
+	if depth == 0 {
+		typeMatches := false
+
+		switch baseType {
+		case "int":
+			_, typeMatches = val.(*Integer)
+		case "float":
+			_, typeMatches = val.(*Float)
+			// Also allow int values in float arrays
+			if !typeMatches {
+				_, typeMatches = val.(*Integer)
+			}
+		case "string":
+			_, typeMatches = val.(*String)
+		case "boolean":
+			_, typeMatches = val.(*Boolean)
+		}
+
+		if !typeMatches {
+			return newError("type mismatch in array: expected %s, got %s", baseType, val.Type())
+		}
+
+		return nil // No error
+	}
+
+	// Check if the value is an array
+	array, ok := val.(*Array)
+	if !ok {
+		return newError("type mismatch: expected array, got %s", val.Type())
+	}
+
+	// For each element in the array, validate it at the next depth level
+	for _, elem := range array.Elements {
+		if err := i.validateArrayWithDepth(baseType, elem, depth-1); err != nil {
+			return err
+		}
+	}
+
+	return nil // No error
+}
+
+// GetLastError returns the last error encountered during evaluation
+func (i *Interpreter) GetLastError() Object {
+	return i.lastError
 }

@@ -5,12 +5,13 @@ import (
 )
 
 func TestNextToken(t *testing.T) {
-	input := `let five = 5;
-let ten = 10;
-let add = func(x, y) {
-  x + y;
-};
-let result = add(five, ten);
+	input := `five = 5;
+ten = 10;
+add = def add_numbers(x: int, y, z: string): SomeStruct
+  result = x + y;
+  SomeStruct(g: result)
+end;
+result = add_numbers(five, ten, "hello");
 !-/*5;
 5 < 10 > 5;
 if (5 < 10) {
@@ -28,47 +29,54 @@ if (5 < 10) {
 		expectedType    TokenType
 		expectedLiteral string
 	}{
-		// let five = 5;
-		{LET, "let"},
 		{IDENT, "five"},
 		{ASSIGN, "="},
 		{INT, "5"},
 		{SEMICOLON, ";"},
-
-		// let ten = 10;
-		{LET, "let"},
 		{IDENT, "ten"},
 		{ASSIGN, "="},
 		{INT, "10"},
 		{SEMICOLON, ";"},
-
-		// let add = func(x, y) { ... };
-		{LET, "let"},
 		{IDENT, "add"},
 		{ASSIGN, "="},
-		{FUNCTION, "func"},
+		{FUNCTION, "def"},
+		{IDENT, "add_numbers"},
 		{LPAREN, "("},
 		{IDENT, "x"},
+		{COLON, ":"},
+		{IDENT, "int"},
 		{COMMA, ","},
 		{IDENT, "y"},
+		{COMMA, ","},
+		{IDENT, "z"},
+		{COLON, ":"},
+		{IDENT, "string"},
 		{RPAREN, ")"},
-		{LBRACE, "{"},
+		{COLON, ":"},
+		{IDENT, "SomeStruct"},
+		{IDENT, "result"},
+		{ASSIGN, "="},
 		{IDENT, "x"},
 		{PLUS, "+"},
 		{IDENT, "y"},
 		{SEMICOLON, ";"},
-		{RBRACE, "}"},
+		{IDENT, "SomeStruct"},
+		{LPAREN, "("},
+		{IDENT, "g"},
+		{COLON, ":"},
+		{IDENT, "result"},
+		{RPAREN, ")"},
+		{END, "end"},
 		{SEMICOLON, ";"},
-
-		// let result = add(five, ten);
-		{LET, "let"},
 		{IDENT, "result"},
 		{ASSIGN, "="},
-		{IDENT, "add"},
+		{IDENT, "add_numbers"},
 		{LPAREN, "("},
 		{IDENT, "five"},
 		{COMMA, ","},
 		{IDENT, "ten"},
+		{COMMA, ","},
+		{STRING, "hello"},
 		{RPAREN, ")"},
 		{SEMICOLON, ";"},
 
@@ -88,7 +96,7 @@ if (5 < 10) {
 		{INT, "5"},
 		{SEMICOLON, ";"},
 
-		// if (5 < 10) { ... } else { ... }
+		// if (5 < 10) {
 		{IF, "if"},
 		{LPAREN, "("},
 		{INT, "5"},
@@ -96,15 +104,23 @@ if (5 < 10) {
 		{INT, "10"},
 		{RPAREN, ")"},
 		{LBRACE, "{"},
+
+		// return true;
 		{RETURN, "return"},
 		{TRUE, "true"},
 		{SEMICOLON, ";"},
+
+		// } else {
 		{RBRACE, "}"},
 		{ELSE, "else"},
 		{LBRACE, "{"},
+
+		// return false;
 		{RETURN, "return"},
 		{FALSE, "false"},
 		{SEMICOLON, ";"},
+
+		// }
 		{RBRACE, "}"},
 
 		// 10 == 10;
@@ -149,15 +165,13 @@ if (5 < 10) {
 
 func TestComment(t *testing.T) {
 	input := `# This is a comment
-let x = 5; # This is another comment`
+x = 5; # This is another comment`
 
 	tests := []struct {
 		expectedType    TokenType
 		expectedLiteral string
 	}{
-		// Comments are recognized as HASH tokens
 		{HASH, "#"},
-		{LET, "let"},
 		{IDENT, "x"},
 		{ASSIGN, "="},
 		{INT, "5"},

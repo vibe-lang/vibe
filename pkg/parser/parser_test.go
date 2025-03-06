@@ -68,11 +68,11 @@ func TestArrayLiterals(t *testing.T) {
 		expectedArray []interface{}
 	}{
 		{
-			"g = [];",
+			`g = [];`,
 			[]interface{}{},
 		},
 		{
-			"h = [1, 2, 3];",
+			`h = [1, 2, 3];`,
 			[]interface{}{1, 2, 3},
 		},
 		{
@@ -81,9 +81,11 @@ func TestArrayLiterals(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for idx, tt := range tests {
+		t.Logf("Test #%d: %s", idx, tt.input)
 		l := lexer.New(tt.input)
 		p := New(l)
+
 		program := p.ParseProgram()
 		checkParserErrors(t, p)
 
@@ -135,7 +137,7 @@ func TestTypedArrayAssignments(t *testing.T) {
 		expectedElements []interface{}
 	}{
 		{
-			"h: int[] = [1, 2, 3];",
+			`h: int[] = [1, 2, 3];`,
 			"h",
 			"int[]",
 			[]interface{}{1, 2, 3},
@@ -147,10 +149,16 @@ func TestTypedArrayAssignments(t *testing.T) {
 			[]interface{}{"hello", "world"},
 		},
 		{
-			"j: float[] = [1.5, 3.8, 1.0];",
+			`j: float[] = [1.5, 3.8, 1.0];`,
 			"j",
 			"float[]",
 			[]interface{}{1.5, 3.8, 1.0},
+		},
+		{
+			`k: int[] = [];`,
+			"k",
+			"int[]",
+			[]interface{}{},
 		},
 	}
 
@@ -181,12 +189,17 @@ func TestTypedArrayAssignments(t *testing.T) {
 			t.Errorf("assignment.Name.Value not '%s'. got=%s", tt.expectedName, assignment.Name.Value)
 		}
 
-		if assignment.Type == nil {
-			t.Fatalf("assignment.Type is nil. Expected a type annotation.")
+		if assignment.TypeAnnotation == nil {
+			t.Fatalf("assignment.TypeAnnotation is nil. Expected a type annotation.")
 		}
 
-		if assignment.Type.Name != tt.expectedType {
-			t.Errorf("assignment.Type.Name not '%s'. got=%s", tt.expectedType, assignment.Type.Name)
+		typeAnnotation, ok := assignment.TypeAnnotation.(*ast.TypeAnnotation)
+		if !ok {
+			t.Fatalf("assignment.TypeAnnotation is not ast.TypeAnnotation. got=%T", assignment.TypeAnnotation)
+		}
+
+		if typeAnnotation.Name != tt.expectedType {
+			t.Errorf("typeAnnotation.Name not '%s'. got=%s", tt.expectedType, typeAnnotation.Name)
 		}
 
 		array, ok := assignment.Value.(*ast.ArrayLiteral)
@@ -220,6 +233,213 @@ func TestTypedArrayAssignments(t *testing.T) {
 				t.Fatalf("Unsupported expected element type: %T", expected)
 			}
 		}
+	}
+}
+
+func TestNestedArrayLiterals(t *testing.T) {
+	tests := []struct {
+		input         string
+		expectedArray [][]interface{}
+	}{
+		{
+			`nested = [[1, 2], [3, 4]];`,
+			[][]interface{}{
+				{1, 2},
+				{3, 4},
+			},
+		},
+		{
+			`strings = [["hello", "world"], ["foo", "bar"]];`,
+			[][]interface{}{
+				{"hello", "world"},
+				{"foo", "bar"},
+			},
+		},
+		{
+			`mixed = [[], [1, 2]];`,
+			[][]interface{}{
+				{},
+				{1, 2},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		l := lexer.New(tt.input)
+		p := New(l)
+		program := p.ParseProgram()
+		checkParserErrors(t, p)
+
+		if len(program.Statements) != 1 {
+			t.Fatalf("program.Statements does not contain 1 statement. got=%d",
+				len(program.Statements))
+		}
+
+		stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+		if !ok {
+			t.Fatalf("program.Statements[0] is not ast.ExpressionStatement. got=%T",
+				program.Statements[0])
+		}
+
+		assignment, ok := stmt.Expression.(*ast.AssignmentExpression)
+		if !ok {
+			t.Fatalf("stmt.Expression is not ast.AssignmentExpression. got=%T",
+				stmt.Expression)
+		}
+
+		outerArray, ok := assignment.Value.(*ast.ArrayLiteral)
+		if !ok {
+			t.Fatalf("assignment.Value is not ast.ArrayLiteral. got=%T", assignment.Value)
+		}
+
+		if len(outerArray.Elements) != len(tt.expectedArray) {
+			t.Fatalf("outerArray.Elements has wrong length. got=%d, want=%d",
+				len(outerArray.Elements), len(tt.expectedArray))
+		}
+
+		// Check each nested array
+		for i, expectedNestedArr := range tt.expectedArray {
+			innerArray, ok := outerArray.Elements[i].(*ast.ArrayLiteral)
+			if !ok {
+				t.Fatalf("outerArray.Elements[%d] is not ast.ArrayLiteral. got=%T",
+					i, outerArray.Elements[i])
+			}
+
+			if len(innerArray.Elements) != len(expectedNestedArr) {
+				t.Fatalf("innerArray.Elements has wrong length. got=%d, want=%d",
+					len(innerArray.Elements), len(expectedNestedArr))
+			}
+
+			// Check each element in the nested array
+			for j, expectedElem := range expectedNestedArr {
+				switch expected := expectedElem.(type) {
+				case int:
+					testIntegerLiteral(t, innerArray.Elements[j], int64(expected))
+				case string:
+					testStringLiteral(t, innerArray.Elements[j], expected)
+				case []interface{}:
+					// Handle deeply nested arrays (3+ levels)
+					deepArray, ok := innerArray.Elements[j].(*ast.ArrayLiteral)
+					if !ok {
+						t.Fatalf("innerArray.Elements[%d] is not ast.ArrayLiteral. got=%T",
+							j, innerArray.Elements[j])
+					}
+					if len(deepArray.Elements) != len(expected) {
+						t.Fatalf("deepArray.Elements has wrong length. got=%d, want=%d",
+							len(deepArray.Elements), len(expected))
+					}
+				default:
+					t.Fatalf("Unsupported expected element type: %T", expected)
+				}
+			}
+		}
+	}
+}
+
+func TestTypedNestedArrayAssignments(t *testing.T) {
+	tests := []struct {
+		input            string
+		expectedName     string
+		expectedType     string
+	}{
+		{
+			`matrix: int[][] = [[1, 2], [3, 4]];`,
+			"matrix",
+			"int[][]",
+		},
+		{
+			`names: string[][] = [["John", "Doe"], ["Jane", "Smith"]];`,
+			"names",
+			"string[][]",
+		},
+	}
+
+	for _, tt := range tests {
+		l := lexer.New(tt.input)
+		p := New(l)
+		program := p.ParseProgram()
+		checkParserErrors(t, p)
+
+		if len(program.Statements) != 1 {
+			t.Fatalf("program.Statements does not contain 1 statement. got=%d",
+				len(program.Statements))
+		}
+
+		stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+		if !ok {
+			t.Fatalf("program.Statements[0] is not ast.ExpressionStatement. got=%T",
+				program.Statements[0])
+		}
+
+		assignment, ok := stmt.Expression.(*ast.AssignmentExpression)
+		if !ok {
+			t.Fatalf("stmt.Expression is not ast.AssignmentExpression. got=%T",
+				stmt.Expression)
+		}
+
+		if assignment.Name.Value != tt.expectedName {
+			t.Errorf("assignment.Name.Value not '%s'. got=%s", tt.expectedName, assignment.Name.Value)
+		}
+
+		if assignment.TypeAnnotation == nil {
+			t.Fatalf("assignment.TypeAnnotation is nil. Expected a type annotation.")
+		}
+
+		typeAnnotation, ok := assignment.TypeAnnotation.(*ast.TypeAnnotation)
+		if !ok {
+			t.Fatalf("assignment.TypeAnnotation is not ast.TypeAnnotation. got=%T", assignment.TypeAnnotation)
+		}
+
+		if typeAnnotation.Name != tt.expectedType {
+			t.Errorf("typeAnnotation.Name not '%s'. got=%s", tt.expectedType, typeAnnotation.Name)
+		}
+
+		// Check that the value is an array literal
+		_, ok = assignment.Value.(*ast.ArrayLiteral)
+		if !ok {
+			t.Fatalf("assignment.Value is not ast.ArrayLiteral. got=%T", assignment.Value)
+		}
+	}
+}
+
+// TestDebugTypedNestedArrayAssignment is a debug test for a specific case
+func TestDebugTypedNestedArrayAssignment(t *testing.T) {
+	input := `matrix: int[][] = [[1, 2], [3, 4]];`
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("program.Statements does not contain 1 statement. got=%d",
+			len(program.Statements))
+	}
+
+	stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf("program.Statements[0] is not ast.ExpressionStatement. got=%T",
+			program.Statements[0])
+	}
+
+	assignment, ok := stmt.Expression.(*ast.AssignmentExpression)
+	if !ok {
+		t.Fatalf("stmt.Expression is not ast.AssignmentExpression. got=%T",
+			stmt.Expression)
+	}
+
+	// Verify the assignment has the correct structure
+	if assignment.Name.Value != "matrix" {
+		t.Errorf("assignment.Name.Value not %s. got=%s", "matrix", assignment.Name.Value)
+	}
+
+	typeAnnotation, ok := assignment.TypeAnnotation.(*ast.TypeAnnotation)
+	if !ok {
+		t.Fatalf("assignment.TypeAnnotation is not *ast.TypeAnnotation. got=%T",
+			assignment.TypeAnnotation)
+	}
+
+	if typeAnnotation.Name != "int[][]" {
+		t.Errorf("typeAnnotation.Name not %s. got=%s", "int[][]", typeAnnotation.Name)
 	}
 }
 
