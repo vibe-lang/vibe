@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/vibe-lang/vibe/pkg/ast"
@@ -1009,4 +1010,379 @@ func TestBasicStringInterpolation(t *testing.T) {
 	if ident.Value != "name" {
 		t.Errorf("ident.Value not %s. got=%s", "name", ident.Value)
 	}
+}
+
+// TestMultiDimensionalTypedArrays tests parsing of multidimensional array type annotations
+func TestMultiDimensionalTypedArrays(t *testing.T) {
+	input := `
+matrix: int[][] = [[1, 2], [3, 4]]
+cube: int[][][] = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+jagged: int[][] = [[1, 2, 3], [4, 5]]
+empty_matrix: float[][] = []
+`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 4 {
+		t.Fatalf("program.Statements does not contain 4 statements. got=%d",
+			len(program.Statements))
+	}
+
+	tests := []struct {
+		expectedIdentifier string
+		expectedDimensions int
+		expectedBaseType   string
+	}{
+		{"matrix", 2, "int"},
+		{"cube", 3, "int"},
+		{"jagged", 2, "int"},
+		{"empty_matrix", 2, "float"},
+	}
+
+	for i, tt := range tests {
+		stmt := program.Statements[i]
+		if !testMultiDimensionalArrayAssignment(t, stmt, tt.expectedIdentifier, tt.expectedDimensions, tt.expectedBaseType) {
+			return
+		}
+	}
+}
+
+func testMultiDimensionalArrayAssignment(t *testing.T, s ast.Statement, name string, dimensions int, baseType string) bool {
+	expStmt, ok := s.(*ast.ExpressionStatement)
+	if !ok {
+		t.Errorf("s not *ast.ExpressionStatement. got=%T", s)
+		return false
+	}
+
+	assignment, ok := expStmt.Expression.(*ast.AssignmentExpression)
+	if !ok {
+		t.Errorf("expStmt.Expression not *ast.AssignmentExpression. got=%T", expStmt.Expression)
+		return false
+	}
+
+	if assignment.Name.Value != name {
+		t.Errorf("assignment.Name.Value not '%s'. got=%s", name, assignment.Name.Value)
+		return false
+	}
+
+	// The type annotation could be directly in the assignment or in a TypedIdentifier
+	var typeAnnotation *ast.TypeAnnotation
+
+	switch annotation := assignment.TypeAnnotation.(type) {
+	case *ast.TypedIdentifier:
+		typeAnnotation = annotation.Type
+	case *ast.TypeAnnotation:
+		typeAnnotation = annotation
+	default:
+		t.Errorf("assignment.TypeAnnotation not a type annotation. got=%T", assignment.TypeAnnotation)
+		return false
+	}
+
+	// Check base type
+	if !strings.HasPrefix(typeAnnotation.Name, baseType) {
+		t.Errorf("Type annotation base type wrong. expected=%s, got=%s",
+			baseType, typeAnnotation.Name)
+		return false
+	}
+
+	// Check dimensions by counting [] pairs in the type name
+	dimCount := strings.Count(typeAnnotation.Name, "[]")
+	if dimCount != dimensions {
+		t.Errorf("Type annotation has wrong number of dimensions. expected=%d, got=%d",
+			dimensions, dimCount)
+		return false
+	}
+
+	// Also verify that the array literal is assigned
+	arrayLit, ok := assignment.Value.(*ast.ArrayLiteral)
+	if !ok && name != "empty_matrix" {
+		t.Errorf("assignment.Value not *ast.ArrayLiteral. got=%T", assignment.Value)
+		return false
+	}
+
+	if name == "empty_matrix" {
+		if arrayLit != nil && len(arrayLit.Elements) > 0 {
+			t.Errorf("Expected empty array, got array with %d elements", len(arrayLit.Elements))
+			return false
+		}
+	}
+
+	return true
+}
+
+// TestStructTypedArrays tests parsing of arrays with struct element types
+func TestStructTypedArrays(t *testing.T) {
+	input := `
+struct Person
+  name: string
+  age: int
+end
+
+struct Team
+  name: string
+  members: Person[]
+end
+
+students: Person[] = [
+  Person(name: "Alice", age: 20),
+  Person(name: "Bob", age: 22)
+]
+
+empty_staff: Person[] = []
+
+teams: Team[] = [
+  Team(name: "Red", members: [Person(name: "Charlie", age: 25), Person(name: "Diana", age: 23)]),
+  Team(name: "Blue", members: [Person(name: "Eve", age: 24)])
+]
+
+nested: Person[][] = [
+  [Person(name: "Frank", age: 30), Person(name: "Grace", age: 28)],
+  [Person(name: "Heidi", age: 32)]
+]
+`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	// First two statements are struct definitions
+	if len(program.Statements) != 6 {
+		t.Fatalf("program.Statements does not contain 6 statements. got=%d",
+			len(program.Statements))
+	}
+
+	// Check struct declarations
+	personStruct, ok := program.Statements[0].(*ast.StructStatement)
+	if !ok {
+		t.Fatalf("program.Statements[0] is not *ast.StructStatement. got=%T",
+			program.Statements[0])
+	}
+	if personStruct.Name.Value != "Person" {
+		t.Fatalf("personStruct.Name.Value not 'Person'. got=%s", personStruct.Name.Value)
+	}
+	if len(personStruct.Fields) != 2 {
+		t.Fatalf("personStruct.Fields does not contain 2 fields. got=%d",
+			len(personStruct.Fields))
+	}
+
+	teamStruct, ok := program.Statements[1].(*ast.StructStatement)
+	if !ok {
+		t.Fatalf("program.Statements[1] is not *ast.StructStatement. got=%T",
+			program.Statements[1])
+	}
+	if teamStruct.Name.Value != "Team" {
+		t.Fatalf("teamStruct.Name.Value not 'Team'. got=%s", teamStruct.Name.Value)
+	}
+	if len(teamStruct.Fields) != 2 {
+		t.Fatalf("teamStruct.Fields does not contain 2 fields. got=%d",
+			len(teamStruct.Fields))
+	}
+
+	// Check array declarations
+	tests := []struct {
+		expectedIdentifier string
+		expectedType       string
+		expectedArraySize  int
+		isMultiDimensional bool
+	}{
+		{"students", "Person[]", 2, false},
+		{"empty_staff", "Person[]", 0, false},
+		{"teams", "Team[]", 2, false},
+		{"nested", "Person[][]", 2, true},
+	}
+
+	for i, tt := range tests {
+		stmt := program.Statements[i+2] // Offset by 2 for the struct declarations
+		testStructArrayAssignment(t, stmt, tt.expectedIdentifier, tt.expectedType, tt.expectedArraySize, tt.isMultiDimensional)
+	}
+}
+
+func testStructArrayAssignment(t *testing.T, s ast.Statement, name string, expectedType string, expectedSize int, isMultidimensional bool) bool {
+	expStmt, ok := s.(*ast.ExpressionStatement)
+	if !ok {
+		t.Errorf("s not *ast.ExpressionStatement. got=%T", s)
+		return false
+	}
+
+	assignment, ok := expStmt.Expression.(*ast.AssignmentExpression)
+	if !ok {
+		t.Errorf("expStmt.Expression not *ast.AssignmentExpression. got=%T", expStmt.Expression)
+		return false
+	}
+
+	if assignment.Name.Value != name {
+		t.Errorf("assignment.Name.Value not '%s'. got=%s", name, assignment.Name.Value)
+		return false
+	}
+
+	// The type annotation could be directly in the assignment or in a TypedIdentifier
+	var typeAnnotation *ast.TypeAnnotation
+
+	switch annotation := assignment.TypeAnnotation.(type) {
+	case *ast.TypedIdentifier:
+		typeAnnotation = annotation.Type
+	case *ast.TypeAnnotation:
+		typeAnnotation = annotation
+	default:
+		t.Errorf("assignment.TypeAnnotation not a type annotation. got=%T", assignment.TypeAnnotation)
+		return false
+	}
+
+	// Check the type name
+	if typeAnnotation.Name != expectedType {
+		t.Errorf("Type annotation wrong. expected=%s, got=%s",
+			expectedType, typeAnnotation.Name)
+		return false
+	}
+
+	arrayLit, ok := assignment.Value.(*ast.ArrayLiteral)
+	if !ok {
+		t.Errorf("assignment.Value not *ast.ArrayLiteral. got=%T", assignment.Value)
+		return false
+	}
+
+	if len(arrayLit.Elements) != expectedSize {
+		t.Errorf("array size wrong. expected=%d, got=%d",
+			expectedSize, len(arrayLit.Elements))
+		return false
+	}
+
+	// If it's a multidimensional array, check that the elements are also arrays
+	if isMultidimensional && expectedSize > 0 {
+		_, ok := arrayLit.Elements[0].(*ast.ArrayLiteral)
+		if !ok {
+			t.Errorf("Expected nested array literal, got=%T", arrayLit.Elements[0])
+			return false
+		}
+	}
+
+	return true
+}
+
+// TestCompoundTypedArrays tests parsing of arrays with tuple/compound element types
+func TestCompoundTypedArrays(t *testing.T) {
+	input := `
+// Array of key-value pairs (tuples)
+pairs: [string, int][] = [
+  ["one", 1],
+  ["two", 2],
+  ["three", 3]
+]
+
+// Array of coordinate tuples
+coordinates: [float, float][] = [
+  [10.5, 20.3],
+  [30.2, 40.1],
+  [50.7, 60.9]
+]
+
+// Empty array of compound type
+empty_records: [string, int, boolean][] = []
+
+// Multidimensional array of tuples
+matrix: [int, int][][] = [
+  [[1, 2], [3, 4]],
+  [[5, 6], [7, 8]]
+]
+`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 4 {
+		t.Fatalf("program.Statements does not contain 4 statements. got=%d",
+			len(program.Statements))
+	}
+
+	tests := []struct {
+		expectedIdentifier string
+		expectedElementCount int
+		expectedCompoundTypes int  // Number of types in the compound type
+		isMultiDimensional bool
+	}{
+		{"pairs", 3, 2, false},         // [string, int][] with 3 elements
+		{"coordinates", 3, 2, false},   // [float, float][] with 3 elements
+		{"empty_records", 0, 3, false}, // [string, int, boolean][] with 0 elements
+		{"matrix", 2, 2, true},         // [int, int][][] with 2 outer elements
+	}
+
+	for i, tt := range tests {
+		stmt := program.Statements[i]
+		testCompoundArrayAssignment(t, stmt, tt.expectedIdentifier, tt.expectedElementCount, tt.expectedCompoundTypes, tt.isMultiDimensional)
+	}
+}
+
+func testCompoundArrayAssignment(t *testing.T, s ast.Statement, name string, expectedSize int, expectedCompoundTypes int, isMultidimensional bool) bool {
+	expStmt, ok := s.(*ast.ExpressionStatement)
+	if !ok {
+		t.Errorf("s not *ast.ExpressionStatement. got=%T", s)
+		return false
+	}
+
+	assignment, ok := expStmt.Expression.(*ast.AssignmentExpression)
+	if !ok {
+		t.Errorf("expStmt.Expression not *ast.AssignmentExpression. got=%T", expStmt.Expression)
+		return false
+	}
+
+	if assignment.Name.Value != name {
+		t.Errorf("assignment.Name.Value not '%s'. got=%s", name, assignment.Name.Value)
+		return false
+	}
+
+	// The type annotation could be directly in the assignment or in a TypedIdentifier
+	var typeAnnotation *ast.TypeAnnotation
+
+	switch annotation := assignment.TypeAnnotation.(type) {
+	case *ast.TypedIdentifier:
+		typeAnnotation = annotation.Type
+	case *ast.TypeAnnotation:
+		typeAnnotation = annotation
+	default:
+		t.Errorf("assignment.TypeAnnotation not a type annotation. got=%T", assignment.TypeAnnotation)
+		return false
+	}
+
+	// Check that the type is a compound type
+	if !typeAnnotation.IsCompoundType && expectedCompoundTypes > 0 {
+		t.Errorf("Expected compound type annotation, got simple type: %s", typeAnnotation.Name)
+		return false
+	}
+
+	// Check compound type count if applicable
+	if expectedCompoundTypes > 0 && len(typeAnnotation.CompoundTypes) != expectedCompoundTypes {
+		t.Errorf("Wrong number of compound types. expected=%d, got=%d",
+			expectedCompoundTypes, len(typeAnnotation.CompoundTypes))
+		return false
+	}
+
+	// Check array value
+	arrayLit, ok := assignment.Value.(*ast.ArrayLiteral)
+	if !ok {
+		t.Errorf("assignment.Value not *ast.ArrayLiteral. got=%T", assignment.Value)
+		return false
+	}
+
+	if len(arrayLit.Elements) != expectedSize {
+		t.Errorf("array size wrong. expected=%d, got=%d",
+			expectedSize, len(arrayLit.Elements))
+		return false
+	}
+
+	// If it's a multidimensional array with elements, check the nesting
+	if isMultidimensional && expectedSize > 0 {
+		_, ok := arrayLit.Elements[0].(*ast.ArrayLiteral)
+		if !ok {
+			t.Errorf("Expected nested array literal, got=%T", arrayLit.Elements[0])
+			return false
+		}
+	}
+
+	return true
 }
