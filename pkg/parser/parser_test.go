@@ -584,6 +584,118 @@ func TestFunctionDefinitions(t *testing.T) {
 }
 */
 
+func TestRangeExpressions(t *testing.T) {
+	input := `
+1..5
+10...20
+`
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 2 {
+		t.Fatalf("program.Statements does not contain 2 statements. got=%d",
+			len(program.Statements))
+	}
+
+	// Test the first range expression (1..5)
+	stmt1, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf("program.Statements[0] is not ast.ExpressionStatement. got=%T",
+			program.Statements[0])
+	}
+
+	rangeExpr1, ok := stmt1.Expression.(*ast.RangeExpression)
+	if !ok {
+		t.Fatalf("stmt1.Expression is not ast.RangeExpression. got=%T",
+			stmt1.Expression)
+	}
+
+	testIntegerLiteral(t, rangeExpr1.Start, 1)
+	testIntegerLiteral(t, rangeExpr1.End, 5)
+
+	if rangeExpr1.Exclusive {
+		t.Errorf("rangeExpr1.Exclusive should be false")
+	}
+
+	// Test the second range expression (10...20)
+	stmt2, ok := program.Statements[1].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf("program.Statements[1] is not ast.ExpressionStatement. got=%T",
+			program.Statements[1])
+	}
+
+	rangeExpr2, ok := stmt2.Expression.(*ast.RangeExpression)
+	if !ok {
+		t.Fatalf("stmt2.Expression is not ast.RangeExpression. got=%T",
+			stmt2.Expression)
+	}
+
+	testIntegerLiteral(t, rangeExpr2.Start, 10)
+	testIntegerLiteral(t, rangeExpr2.End, 20)
+
+	if !rangeExpr2.Exclusive {
+		t.Errorf("rangeExpr2.Exclusive should be true")
+	}
+}
+
+func TestRangeConstructor(t *testing.T) {
+	input := `
+Range(1, 10)
+Range(5, 15, true)
+`
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 2 {
+		t.Fatalf("program.Statements does not contain 2 statements. got=%d",
+			len(program.Statements))
+	}
+
+	// Test the first range constructor (Range(1, 10))
+	stmt1, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf("program.Statements[0] is not ast.ExpressionStatement. got=%T",
+			program.Statements[0])
+	}
+
+	rangeCall1, ok := stmt1.Expression.(*ast.RangeCallExpression)
+	if !ok {
+		t.Fatalf("stmt1.Expression is not ast.RangeCallExpression. got=%T",
+			stmt1.Expression)
+	}
+
+	testIntegerLiteral(t, rangeCall1.Start, 1)
+	testIntegerLiteral(t, rangeCall1.End, 10)
+
+	if rangeCall1.Exclusive {
+		t.Errorf("rangeCall1.Exclusive should be false")
+	}
+
+	// Test the second range constructor (Range(5, 15, true))
+	stmt2, ok := program.Statements[1].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf("program.Statements[1] is not ast.ExpressionStatement. got=%T",
+			program.Statements[1])
+	}
+
+	rangeCall2, ok := stmt2.Expression.(*ast.RangeCallExpression)
+	if !ok {
+		t.Fatalf("stmt2.Expression is not ast.RangeCallExpression. got=%T",
+			stmt2.Expression)
+	}
+
+	testIntegerLiteral(t, rangeCall2.Start, 5)
+	testIntegerLiteral(t, rangeCall2.End, 15)
+
+	if !rangeCall2.Exclusive {
+		t.Errorf("rangeCall2.Exclusive should be true")
+	}
+}
+
 func checkParserErrors(t *testing.T, p *Parser) {
 	errors := p.Errors()
 	if len(errors) == 0 {

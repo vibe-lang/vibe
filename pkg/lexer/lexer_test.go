@@ -201,6 +201,10 @@ end
 	for i, tt := range tests {
 		tok := l.NextToken()
 
+		// Add debugging
+		t.Logf("Token %d: expected=%q(%q), got=%q(%q)",
+			i, tt.expectedType, tt.expectedLiteral, tok.Type, tok.Literal)
+
 		if tok.Type != tt.expectedType {
 			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q",
 				i, tt.expectedType, tok.Type)
@@ -233,6 +237,69 @@ x = 5 # This is another comment`
 
 	for i, tt := range tests {
 		tok := l.NextToken()
+
+		if tok.Type != tt.expectedType {
+			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q",
+				i, tt.expectedType, tok.Type)
+		}
+
+		if tok.Literal != tt.expectedLiteral {
+			t.Fatalf("tests[%d] - literal wrong. expected=%q, got=%q",
+				i, tt.expectedLiteral, tok.Literal)
+		}
+	}
+}
+
+func TestRangeOperators(t *testing.T) {
+	input := `
+a = 1..5
+b = 10...20
+c = start..finish
+d = Range(1, 10)
+`
+
+	tests := []struct {
+		expectedType    TokenType
+		expectedLiteral string
+	}{
+		{IDENT, "a"},
+		{ASSIGN, "="},
+		{INT, "1"},
+		{DOTDOT, ".."},
+		{INT, "5"},
+
+		{IDENT, "b"},
+		{ASSIGN, "="},
+		{INT, "10"},
+		{DOTDOTDOT, "..."},
+		{INT, "20"},
+
+		{IDENT, "c"},
+		{ASSIGN, "="},
+		{IDENT, "start"},
+		{DOTDOT, ".."},
+		{IDENT, "finish"},
+
+		{IDENT, "d"},
+		{ASSIGN, "="},
+		{IDENT, "Range"},
+		{LPAREN, "("},
+		{INT, "1"},
+		{COMMA, ","},
+		{INT, "10"},
+		{RPAREN, ")"},
+
+		{EOF, ""},
+	}
+
+	l := New(input)
+
+	for i, tt := range tests {
+		tok := l.NextToken()
+
+		// Add debugging
+		t.Logf("Token %d: expected=%q(%q), got=%q(%q)",
+			i, tt.expectedType, tt.expectedLiteral, tok.Type, tok.Literal)
 
 		if tok.Type != tt.expectedType {
 			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q",

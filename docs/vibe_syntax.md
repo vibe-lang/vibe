@@ -10,9 +10,10 @@ This guide documents the syntax and features of the Vibe programming language, a
 4. [Control Structures](#control-structures)
 5. [Functions](#functions)
 6. [Arrays](#arrays)
-7. [Classes and Objects](#classes-and-objects)
-8. [Comments](#comments)
-9. [String Interpolation](#string-interpolation)
+7. [Ranges](#ranges)
+8. [Classes and Objects](#classes-and-objects)
+9. [Comments](#comments)
+10. [String Interpolation](#string-interpolation)
 
 ## Variables
 
@@ -193,6 +194,75 @@ strings: string[] = ["hello", "world"]
 ```vibe
 matrix = [[1, 2], [3, 4]]
 nested: int[][] = [[1, 2], [3, 4]]
+```
+
+## Ranges
+
+Ranges represent a sequence of values between a start and end point.
+
+### Inclusive Ranges
+
+Inclusive ranges include both the start and end values.
+
+```vibe
+# Range from 1 to 5 (includes 1, 2, 3, 4, 5)
+r1 = 1..5
+
+# Using variables
+start = 10
+end_val = 20
+r2 = start..end_val
+
+# Descending range (includes 50, 49, ..., 10)
+r3 = 50..10
+```
+
+### Exclusive Ranges
+
+Exclusive ranges include the start value but exclude the end value.
+
+```vibe
+# Range from 1 to 5 (includes 1, 2, 3, 4, not 5)
+r1 = 1...5
+
+# Using variables
+start = 10
+end_val = 20
+r2 = start...end_val
+
+# Descending range (includes 50, 49, ..., 11, not 10)
+r3 = 50...10
+```
+
+### Range Constructor
+
+You can also create ranges using the `Range` constructor.
+
+```vibe
+# Inclusive range from 1 to 10
+r1 = Range(1, 10)
+
+# Using variables
+start = 5
+end_val = 15
+r2 = Range(start, end_val)
+```
+
+### Using Ranges
+
+Ranges can be used in various contexts:
+
+```vibe
+# Checking if a value is in a range
+in_range = 3.in?(1..5)  # true
+
+# Iterating over a range
+for i in 1..5
+  puts(i)
+end
+
+# Getting an array from a range
+numbers = (1..5).to_array()  # [1, 2, 3, 4, 5]
 ```
 
 ## Classes and Objects

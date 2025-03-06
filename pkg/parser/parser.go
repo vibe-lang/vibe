@@ -54,24 +54,27 @@ const (
 	PRODUCT      // *, /, %
 	PREFIX       // -X, !X
 	CALL         // myFunction(X)
+	RANGE        // .., ...
 )
 
 // Precedence map associates token types with their precedence levels.
 // This is used to resolve operator precedence when parsing expressions.
 var precedences = map[lexer.TokenType]int{
-	lexer.ASSIGN:   ASSIGN,
-	lexer.EQ:       EQUALS,
-	lexer.NOT_EQ:   EQUALS,
-	lexer.LT:       LESSGREATER,
-	lexer.GT:       LESSGREATER,
-	lexer.LTE:      LESSGREATER,
-	lexer.GTE:      LESSGREATER,
-	lexer.PLUS:     SUM,
-	lexer.MINUS:    SUM,
-	lexer.SLASH:    PRODUCT,
-	lexer.ASTERISK: PRODUCT,
-	lexer.MODULO:   PRODUCT,
-	lexer.LPAREN:   CALL,
+	lexer.ASSIGN:    ASSIGN,
+	lexer.EQ:        EQUALS,
+	lexer.NOT_EQ:    EQUALS,
+	lexer.LT:        LESSGREATER,
+	lexer.GT:        LESSGREATER,
+	lexer.LTE:       LESSGREATER,
+	lexer.GTE:       LESSGREATER,
+	lexer.PLUS:      SUM,
+	lexer.MINUS:     SUM,
+	lexer.SLASH:     PRODUCT,
+	lexer.ASTERISK:  PRODUCT,
+	lexer.MODULO:    PRODUCT,
+	lexer.LPAREN:    CALL,
+	lexer.DOTDOT:    RANGE,
+	lexer.DOTDOTDOT: RANGE,
 }
 
 // New creates a new parser for the given lexer.
@@ -130,6 +133,8 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerInfix(lexer.GTE, p.parseInfixExpression)
 	p.registerInfix(lexer.LPAREN, p.parseCallExpression)
 	p.registerInfix(lexer.ASSIGN, p.parseAssignmentExpression)
+	p.registerInfix(lexer.DOTDOT, p.parseRangeExpression)
+	p.registerInfix(lexer.DOTDOTDOT, p.parseRangeExpression)
 
 	return p
 }
@@ -320,6 +325,11 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 //	x
 //	myFunction
 func (p *Parser) parseIdentifier() ast.Expression {
+	// Special case for Range constructor
+	if p.curToken.Literal == "Range" && p.peekTokenIs(lexer.LPAREN) {
+		return p.parseRangeCall(&ast.Identifier{Token: p.curToken, Value: p.curToken.Literal})
+	}
+
 	// First, check if this is a struct instantiation
 	if p.peekTokenIs(lexer.LPAREN) {
 		// Look for a matching struct definition
@@ -672,8 +682,69 @@ func (p *Parser) parseClassLiteral() ast.Expression {
 //	add(1, 2)
 //	person.greet()
 func (p *Parser) parseCallExpression(function ast.Expression) ast.Expression {
-	// Implement call expression parsing
-	return nil
+	// Special case for Range constructor
+	if ident, ok := function.(*ast.Identifier); ok && ident.Value == "Range" {
+		return p.parseRangeCall(ident)
+	}
+
+	// Regular function call
+	expr := &ast.CallExpression{Token: p.curToken, Function: function}
+	expr.Arguments = p.parseExpressionList(lexer.RPAREN)
+	return expr
+}
+
+// parseRangeCall parses a Range constructor call.
+// Example: Range(1, 10) or Range(1, 10, true)
+func (p *Parser) parseRangeCall(ident ast.Expression) ast.Expression {
+	expr := &ast.RangeCallExpression{
+		Token:     p.curToken,
+		Exclusive: false,
+	}
+
+	// Expect opening parenthesis
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil
+	}
+
+	// Parse start value
+	p.nextToken()
+	expr.Start = p.parseExpression(LOWEST)
+	if expr.Start == nil {
+		return nil
+	}
+
+	// Expect comma
+	if !p.expectPeek(lexer.COMMA) {
+		return nil
+	}
+
+	// Parse end value
+	p.nextToken()
+	expr.End = p.parseExpression(LOWEST)
+	if expr.End == nil {
+		return nil
+	}
+
+	// Check for optional third argument (exclusive flag)
+	if p.peekTokenIs(lexer.COMMA) {
+		p.nextToken() // consume comma
+		p.nextToken() // move to the exclusive flag
+
+		// The third argument should be a boolean
+		if boolLit, ok := p.parseExpression(LOWEST).(*ast.BooleanLiteral); ok {
+			expr.Exclusive = boolLit.Value
+		} else {
+			p.addError("third argument to Range must be a boolean")
+			return nil
+		}
+	}
+
+	// Expect closing parenthesis
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil
+	}
+
+	return expr
 }
 
 // parseAssignmentExpression parses an assignment expression.
@@ -976,4 +1047,43 @@ func (p *Parser) parseStructLiteral() ast.Expression {
 	}
 
 	return structLiteral
+}
+
+// parseRangeExpression parses a range expression.
+// Range expressions define a sequence of values between a start and end point.
+//
+// Example Vibe code:
+//
+//	1..5  // Inclusive range from 1 to 5
+//	1...5 // Exclusive range from 1 to 5 (does not include 5)
+func (p *Parser) parseRangeExpression(left ast.Expression) ast.Expression {
+	expr := &ast.RangeExpression{
+		Token: p.curToken,
+		Start: left,
+	}
+
+	// Determine if this is an inclusive or exclusive range
+	expr.Exclusive = p.curToken.Type == lexer.DOTDOTDOT
+
+	// Debug
+	fmt.Printf("Range expression: start=%v, token=%v, exclusive=%v\n",
+		left, p.curToken.Literal, expr.Exclusive)
+
+	precedence := p.curPrecedence()
+	p.nextToken()
+
+	// Debug
+	fmt.Printf("After nextToken: curToken=%v, literal=%v\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	expr.End = p.parseExpression(precedence)
+
+	// Debug
+	if expr.End == nil {
+		fmt.Printf("Failed to parse end expression\n")
+	} else {
+		fmt.Printf("End expression: %T %v\n", expr.End, expr.End)
+	}
+
+	return expr
 }

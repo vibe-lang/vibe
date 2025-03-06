@@ -646,3 +646,50 @@ func (cl *CompoundLiteral) String() string {
 
 	return out.String()
 }
+
+// RangeExpression represents a range of values (either inclusive or exclusive).
+// Example: 1..5 (inclusive) or 1...5 (exclusive)
+type RangeExpression struct {
+	Token     lexer.Token // The token for the range operator (.., ...)
+	Start     Expression  // The start value of the range
+	End       Expression  // The end value of the range
+	Exclusive bool        // Whether the range excludes the end value
+}
+
+func (re *RangeExpression) expressionNode() {}
+func (re *RangeExpression) TokenLiteral() string { return re.Token.Literal }
+func (re *RangeExpression) String() string {
+	var out bytes.Buffer
+	out.WriteString(re.Start.String())
+	if re.Exclusive {
+		out.WriteString("...")
+	} else {
+		out.WriteString("..")
+	}
+	out.WriteString(re.End.String())
+	return out.String()
+}
+
+// RangeCallExpression represents a range created using the Range function.
+// Example: Range(1, 10)
+type RangeCallExpression struct {
+	Token     lexer.Token // The 'Range' token
+	Start     Expression  // The start value
+	End       Expression  // The end value
+	Exclusive bool        // Whether the range excludes the end value (optional 3rd argument)
+}
+
+func (rc *RangeCallExpression) expressionNode() {}
+func (rc *RangeCallExpression) TokenLiteral() string { return rc.Token.Literal }
+func (rc *RangeCallExpression) String() string {
+	var out bytes.Buffer
+	out.WriteString("Range(")
+	out.WriteString(rc.Start.String())
+	out.WriteString(", ")
+	out.WriteString(rc.End.String())
+	if rc.Exclusive {
+		out.WriteString(", true")
+	}
+	out.WriteString(")")
+	return out.String()
+}

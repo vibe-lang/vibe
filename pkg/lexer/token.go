@@ -48,6 +48,10 @@ const (
 	LTE    = "<="  // Less than or equal operator
 	GTE    = ">="  // Greater than or equal operator
 
+	// Range operators
+	DOTDOT   = ".."   // Inclusive range operator (a..b)
+	DOTDOTDOT = "..." // Exclusive range operator (a...b)
+
 	// Delimiters
 	COMMA     = ","   // Separates items in lists
 	SEMICOLON = ";"   // Terminates statements

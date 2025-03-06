@@ -155,7 +155,23 @@ func (l *Lexer) NextToken() Token {
 	case ',':
 		tok = Token{Type: COMMA, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '.':
-		tok = Token{Type: DOT, Literal: string(l.ch), Line: l.line, Column: l.column}
+		if l.peekChar() == '.' {
+			ch := l.ch
+			l.readChar() // consume the first '.'
+			if l.peekChar() == '.' {
+				// This is a '...' (exclusive range)
+				ch2 := l.ch
+				l.readChar() // consume the second '.'
+				tok = Token{Type: DOTDOTDOT, Literal: string(ch) + string(ch2) + string(l.ch), Line: l.line, Column: l.column - 2}
+			} else {
+				// This is a '..' (inclusive range)
+				tok = Token{Type: DOTDOT, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+			}
+			l.readChar() // Move to the next character after the range operator
+			return tok
+		} else {
+			tok = Token{Type: DOT, Literal: string(l.ch), Line: l.line, Column: l.column}
+		}
 	case '(':
 		tok = Token{Type: LPAREN, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case ')':
