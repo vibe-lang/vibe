@@ -12,6 +12,26 @@ add = def add_numbers(x: int, y, z: string): SomeStruct
   SomeStruct(g: result)
 end;
 result = add_numbers(five, ten, "hello");
+
+# simple function without type annotations
+simple = def no_types(a, b)
+  a + b
+end;
+
+# function with return type but no parameter types
+calc = def calculate(x, y): int
+  return x * y
+end;
+
+# function with parameter types but no return type
+print = def log(message: string, level: int)
+  # just a function that logs something
+  "Logged: " + message
+end;
+
+# one-liner function
+square = def square(n: int): int n * n end;
+
 !-/*5;
 5 < 10 > 5;
 if (5 < 10) {
@@ -22,7 +42,7 @@ if (5 < 10) {
 10 == 10;
 10 != 9;
 "hello world";
-"hello \"world\"";
+"hello \\\"world\\\"";
 `
 
 	tests := []struct {
@@ -80,23 +100,96 @@ if (5 < 10) {
 		{RPAREN, ")"},
 		{SEMICOLON, ";"},
 
-		// !-/*5;
+		// Simple function without type annotations
+		{HASH, "#"},
+		{IDENT, "simple"},
+		{ASSIGN, "="},
+		{FUNCTION, "def"},
+		{IDENT, "no_types"},
+		{LPAREN, "("},
+		{IDENT, "a"},
+		{COMMA, ","},
+		{IDENT, "b"},
+		{RPAREN, ")"},
+		{IDENT, "a"},
+		{PLUS, "+"},
+		{IDENT, "b"},
+		{END, "end"},
+		{SEMICOLON, ";"},
+
+		// Function with return type but no parameter types
+		{HASH, "#"},
+		{IDENT, "calc"},
+		{ASSIGN, "="},
+		{FUNCTION, "def"},
+		{IDENT, "calculate"},
+		{LPAREN, "("},
+		{IDENT, "x"},
+		{COMMA, ","},
+		{IDENT, "y"},
+		{RPAREN, ")"},
+		{COLON, ":"},
+		{IDENT, "int"},
+		{RETURN, "return"},
+		{IDENT, "x"},
+		{ASTERISK, "*"},
+		{IDENT, "y"},
+		{END, "end"},
+		{SEMICOLON, ";"},
+
+		// Function with parameter types but no return type
+		{HASH, "#"},
+		{IDENT, "print"},
+		{ASSIGN, "="},
+		{FUNCTION, "def"},
+		{IDENT, "log"},
+		{LPAREN, "("},
+		{IDENT, "message"},
+		{COLON, ":"},
+		{IDENT, "string"},
+		{COMMA, ","},
+		{IDENT, "level"},
+		{COLON, ":"},
+		{IDENT, "int"},
+		{RPAREN, ")"},
+		{HASH, "#"},
+		{STRING, "Logged: "},
+		{PLUS, "+"},
+		{IDENT, "message"},
+		{END, "end"},
+		{SEMICOLON, ";"},
+
+		// One-liner function
+		{HASH, "#"},
+		{IDENT, "square"},
+		{ASSIGN, "="},
+		{FUNCTION, "def"},
+		{IDENT, "square"},
+		{LPAREN, "("},
+		{IDENT, "n"},
+		{COLON, ":"},
+		{IDENT, "int"},
+		{RPAREN, ")"},
+		{COLON, ":"},
+		{IDENT, "int"},
+		{IDENT, "n"},
+		{ASTERISK, "*"},
+		{IDENT, "n"},
+		{END, "end"},
+		{SEMICOLON, ";"},
+
 		{BANG, "!"},
 		{MINUS, "-"},
 		{SLASH, "/"},
 		{ASTERISK, "*"},
 		{INT, "5"},
 		{SEMICOLON, ";"},
-
-		// 5 < 10 > 5;
 		{INT, "5"},
 		{LT, "<"},
 		{INT, "10"},
 		{GT, ">"},
 		{INT, "5"},
 		{SEMICOLON, ";"},
-
-		// if (5 < 10) {
 		{IF, "if"},
 		{LPAREN, "("},
 		{INT, "5"},
@@ -104,45 +197,28 @@ if (5 < 10) {
 		{INT, "10"},
 		{RPAREN, ")"},
 		{LBRACE, "{"},
-
-		// return true;
 		{RETURN, "return"},
 		{TRUE, "true"},
 		{SEMICOLON, ";"},
-
-		// } else {
 		{RBRACE, "}"},
 		{ELSE, "else"},
 		{LBRACE, "{"},
-
-		// return false;
 		{RETURN, "return"},
 		{FALSE, "false"},
 		{SEMICOLON, ";"},
-
-		// }
 		{RBRACE, "}"},
-
-		// 10 == 10;
 		{INT, "10"},
 		{EQ, "=="},
 		{INT, "10"},
 		{SEMICOLON, ";"},
-
-		// 10 != 9;
 		{INT, "10"},
 		{NOT_EQ, "!="},
 		{INT, "9"},
 		{SEMICOLON, ";"},
-
-		// "hello world";
 		{STRING, "hello world"},
 		{SEMICOLON, ";"},
-
-		// "hello \"world\"";
-		{STRING, "hello \\\"world\\\""},
+		{STRING, "hello \\\\\\\"world\\\\\\\""},
 		{SEMICOLON, ";"},
-
 		{EOF, ""},
 	}
 
