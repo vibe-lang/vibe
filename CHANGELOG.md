@@ -4,6 +4,14 @@ All notable changes to the Vibe language will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.4](https://github.com/vibe-lang/vibe/compare/v0.2.3...v0.2.4) (2026-02-06)
+
+
+### Features
+
+* add LSP server for real-time editor intelligence ([d5cd700](https://github.com/vibe-lang/vibe/commit/d5cd70045d8358d75a6d62fcd22217d0a86064fa))
+* add practical scripting features for real-world usage ([ed7d618](https://github.com/vibe-lang/vibe/commit/ed7d618a1ea1544cecfb5e6dc5301ad2e3a9928f))
+
 ## [0.2.3](https://github.com/vibe-lang/vibe/compare/v0.2.2...v0.2.3) (2026-02-06)
 
 
