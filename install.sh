@@ -365,17 +365,21 @@ Please check that version v${VERSION} exists at:
     printf '\n'
 
     if [ "$NEEDS_SHELL_RELOAD" = "yes" ]; then
-        printf '  To get started, restart your shell or run:\n'
+        printf '  To get started, run this command to add vibe to your PATH:\n'
         printf '\n'
         if [ "$SHELL_NAME" = "fish" ]; then
-            printf '    %ssource %s%s\n' "${CYAN}" "$SHELL_CONFIG" "${RESET}"
+            # shellcheck disable=SC2016
+            printf '    %sset -gx PATH %s $PATH%s\n' "${CYAN}" "$BIN_DIR" "${RESET}"
         else
-            printf '    %ssource %s%s\n' "${CYAN}" "$SHELL_CONFIG" "${RESET}"
+            # shellcheck disable=SC2016
+            printf '    %sexport PATH="%s:$PATH"%s\n' "${CYAN}" "$BIN_DIR" "${RESET}"
         fi
+        printf '\n'
+        printf '  %sThis is already saved to %s for future sessions.%s\n' "${DIM}" "$SHELL_CONFIG" "${RESET}"
         printf '\n'
     fi
 
-    printf '  Then try:\n'
+    printf '  Try it out:\n'
     printf '\n'
     printf '    %svibe --version%s\n' "${CYAN}" "${RESET}"
     printf '    %svibe run examples/hello.vb%s\n' "${CYAN}" "${RESET}"
