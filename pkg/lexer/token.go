@@ -46,8 +46,9 @@ const (
 	ARROW      = "->"
 	PIPE_ARROW = "|>"
 
-	// Ternary operator
-	QUESTION = "?"
+	// Ternary and nil coalescing operators
+	QUESTION     = "?"
+	NIL_COALESCE = "??"
 
 	// Comparison operators
 	EQ     = "=="
@@ -106,6 +107,10 @@ const (
 	SELF     = "SELF"
 	SUPER    = "SUPER"
 	ENUM     = "ENUM"
+	CONST    = "CONST"
+
+	// Power operator
+	POWER_OP = "**"
 )
 
 var keywords = map[string]TokenType{
@@ -141,6 +146,7 @@ var keywords = map[string]TokenType{
 	"self":     SELF,
 	"super":    SUPER,
 	"enum":     ENUM,
+	"const":    CONST,
 }
 
 // LookupIdent checks if the given identifier is a keyword.

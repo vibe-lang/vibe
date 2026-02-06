@@ -4,7 +4,10 @@ package interpreter
 // ternary, unless/until, case/when, default params, negative indexing,
 // arrow functions, pipe operator, in operator.
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // ---------------------------------------------------------------------------
 // 1. Compound assignment operators (+=, -=, *=, /=, %=)
@@ -907,4 +910,486 @@ ch = Channel()
 spawn(fn() { send(ch, 99) })
 receive(ch)`)
 	assertInteger(t, result, 99)
+}
+
+// ===========================================================================
+// 19. Generics
+// ===========================================================================
+
+// --- Generic functions ---
+
+func TestGenericFunctionIdentity(t *testing.T) {
+	// Basic generic identity function with single type param
+	result := evalInput(t, `
+def identity<T>(x: T): T
+  x
+end
+identity(42)`)
+	assertInteger(t, result, 42)
+}
+
+func TestGenericFunctionIdentityString(t *testing.T) {
+	result := evalInput(t, `
+def identity<T>(x: T): T
+  x
+end
+identity("hello")`)
+	assertString(t, result, "hello")
+}
+
+func TestGenericFunctionTwoParams(t *testing.T) {
+	// Generic function with two type parameters
+	result := evalInput(t, `
+def first_of<A, B>(a: A, b: B): A
+  a
+end
+first_of(42, "world")`)
+	assertInteger(t, result, 42)
+}
+
+func TestGenericFunctionSecondParam(t *testing.T) {
+	result := evalInput(t, `
+def second_of<A, B>(a: A, b: B): B
+  b
+end
+second_of(42, "world")`)
+	assertString(t, result, "world")
+}
+
+func TestGenericFunctionTypeInference(t *testing.T) {
+	// Type inference: T is inferred as "int" from the argument
+	result := evalInput(t, `
+def wrap<T>(x: T): T
+  x
+end
+wrap(true)`)
+	assertBoolean(t, result, true)
+}
+
+func TestGenericFunctionWithBody(t *testing.T) {
+	// Generic function that does something with the value
+	result := evalInput(t, `
+def make_array<T>(x: T): T
+  [x, x, x]
+end
+arr = make_array(5)
+len(arr)`)
+	assertInteger(t, result, 3)
+}
+
+func TestGenericFunctionTypeConsistencyError(t *testing.T) {
+	// When a type param is used multiple times, arguments must be consistent
+	result := evalInput(t, `
+def same<T>(a: T, b: T): T
+  a
+end
+same(42, "hello")`)
+	// Should produce a type error because T can't be both int and string
+	errObj, ok := result.(*Error)
+	if !ok {
+		t.Fatalf("expected error for inconsistent type params, got %T (%s)", result, result.Inspect())
+	}
+	if !strings.Contains(errObj.Message, "inconsistently inferred") {
+		t.Errorf("expected 'inconsistently inferred' error, got: %s", errObj.Message)
+	}
+}
+
+func TestGenericFunctionNoTypeParams(t *testing.T) {
+	// Regular function (no generics) should still work
+	result := evalInput(t, `
+def add(a, b)
+  a + b
+end
+add(3, 4)`)
+	assertInteger(t, result, 7)
+}
+
+// --- Generic classes ---
+
+func TestGenericClassBox(t *testing.T) {
+	result := evalInput(t, `
+class Box<T>
+  def initialize(value)
+    self.value = value
+  end
+
+  def get()
+    self.value
+  end
+end
+
+b = Box(42)
+b.get()`)
+	assertInteger(t, result, 42)
+}
+
+func TestGenericClassBoxString(t *testing.T) {
+	result := evalInput(t, `
+class Box<T>
+  def initialize(value)
+    self.value = value
+  end
+
+  def get()
+    self.value
+  end
+end
+
+b = Box("hello")
+b.get()`)
+	assertString(t, result, "hello")
+}
+
+func TestGenericClassWithTypeArgs(t *testing.T) {
+	// Explicit type args at instantiation
+	result := evalInput(t, `
+class Container<T>
+  def initialize(item)
+    self.item = item
+  end
+
+  def get_item()
+    self.item
+  end
+end
+
+c = Container<int>(item: 99)
+c.get_item()`)
+	assertInteger(t, result, 99)
+}
+
+func TestGenericClassMultipleTypeParams(t *testing.T) {
+	result := evalInput(t, `
+class Pair<A, B>
+  def initialize(first, second)
+    self.first = first
+    self.second = second
+  end
+
+  def get_first()
+    self.first
+  end
+
+  def get_second()
+    self.second
+  end
+end
+
+p = Pair(1, "hello")
+p.get_second()`)
+	assertString(t, result, "hello")
+}
+
+func TestGenericClassInheritance(t *testing.T) {
+	// Generic class with inheritance still works
+	result := evalInput(t, `
+class Animal
+  def initialize(name)
+    self.name = name
+  end
+end
+
+class Dog < Animal
+  def speak()
+    "Woof! I'm ${self.name}"
+  end
+end
+
+d = Dog("Rex")
+d.speak()`)
+	assertString(t, result, "Woof! I'm Rex")
+}
+
+func TestGenericClassWithTypeParamsAndInheritance(t *testing.T) {
+	// This tests that type params and inheritance work together
+	result := evalInput(t, `
+class Base
+  def base_method()
+    "from base"
+  end
+end
+
+class Wrapper<T> < Base
+  def initialize(val)
+    self.val = val
+  end
+
+  def get_val()
+    self.val
+  end
+end
+
+w = Wrapper(42)
+w.base_method()`)
+	assertString(t, result, "from base")
+}
+
+// --- Generic structs ---
+
+func TestGenericStruct(t *testing.T) {
+	result := evalInput(t, `
+struct Entry<K, V>
+  key = nil
+  value = nil
+end
+
+e = Entry<string, int>(key: "age", value: 25)
+e.value`)
+	assertInteger(t, result, 25)
+}
+
+func TestGenericStructKeyAccess(t *testing.T) {
+	result := evalInput(t, `
+struct Entry<K, V>
+  key = nil
+  value = nil
+end
+
+e = Entry<string, int>(key: "name", value: 42)
+e.key`)
+	assertString(t, result, "name")
+}
+
+func TestGenericStructWrongTypeArgCount(t *testing.T) {
+	result := evalInput(t, `
+struct Pair<A, B>
+  first = nil
+  second = nil
+end
+
+p = Pair<int>(first: 1, second: 2)
+p`)
+	errObj, ok := result.(*Error)
+	if !ok {
+		t.Fatalf("expected error for wrong type arg count, got %T (%s)", result, result.Inspect())
+	}
+	if !strings.Contains(errObj.Message, "wrong number of type arguments") {
+		t.Errorf("expected 'wrong number of type arguments' error, got: %s", errObj.Message)
+	}
+}
+
+// --- Integration tests ---
+
+func TestGenericFunctionWithArrays(t *testing.T) {
+	result := evalInput(t, `
+def first_elem<T>(arr: T)
+  arr[0]
+end
+first_elem([10, 20, 30])`)
+	// Note: T is inferred from the array argument, and we just index into it
+	assertInteger(t, result, 10)
+}
+
+func TestGenericFunctionUsedMultipleTimes(t *testing.T) {
+	// Same generic function called with different types
+	result := evalInput(t, `
+def identity<T>(x: T): T
+  x
+end
+a = identity(42)
+b = identity("hello")
+b`)
+	assertString(t, result, "hello")
+}
+
+func TestGenericFunctionUsedMultipleTimesInt(t *testing.T) {
+	result := evalInput(t, `
+def identity<T>(x: T): T
+  x
+end
+a = identity(42)
+b = identity("hello")
+a`)
+	assertInteger(t, result, 42)
+}
+
+func TestGenericClassFieldAccess(t *testing.T) {
+	result := evalInput(t, `
+class Stack<T>
+  def initialize()
+    self.items = []
+  end
+
+  def push_item(item)
+    self.items = push(self.items, item)
+  end
+
+  def peek()
+    self.items[len(self.items) - 1]
+  end
+
+  def size()
+    len(self.items)
+  end
+end
+
+s = Stack()
+s.push_item(10)
+s.push_item(20)
+s.push_item(30)
+s.peek()`)
+	assertInteger(t, result, 30)
+}
+
+func TestGenericClassStackSize(t *testing.T) {
+	result := evalInput(t, `
+class Stack<T>
+  def initialize()
+    self.items = []
+  end
+
+  def push_item(item)
+    self.items = push(self.items, item)
+  end
+
+  def size()
+    len(self.items)
+  end
+end
+
+s = Stack()
+s.push_item("a")
+s.push_item("b")
+s.size()`)
+	assertInteger(t, result, 2)
+}
+
+// ===========================================================================
+// 20. Super keyword
+// ===========================================================================
+
+func TestSuperMethodCall(t *testing.T) {
+	// super.method() calls the parent's method
+	result := evalInput(t, `
+class Animal
+  def speak()
+    "generic sound"
+  end
+end
+
+class Dog < Animal
+  def speak()
+    "woof and " + super.speak()
+  end
+end
+
+d = Dog()
+d.speak()`)
+	assertString(t, result, "woof and generic sound")
+}
+
+func TestSuperInitialize(t *testing.T) {
+	// super(args) calls parent's initialize
+	result := evalInput(t, `
+class Animal
+  def initialize(name)
+    self.name = name
+  end
+end
+
+class Dog < Animal
+  def initialize(name, breed)
+    super(name)
+    self.breed = breed
+  end
+end
+
+d = Dog("Rex", "Lab")
+d.name`)
+	assertString(t, result, "Rex")
+}
+
+func TestSuperInitializeChildField(t *testing.T) {
+	result := evalInput(t, `
+class Animal
+  def initialize(name)
+    self.name = name
+  end
+end
+
+class Dog < Animal
+  def initialize(name, breed)
+    super(name)
+    self.breed = breed
+  end
+end
+
+d = Dog("Rex", "Lab")
+d.breed`)
+	assertString(t, result, "Lab")
+}
+
+func TestSuperMethodWithArgs(t *testing.T) {
+	result := evalInput(t, `
+class Base
+  def greet(name)
+    "Hello, " + name
+  end
+end
+
+class Child < Base
+  def greet(name)
+    super.greet(name) + "!"
+  end
+end
+
+c = Child()
+c.greet("World")`)
+	assertString(t, result, "Hello, World!")
+}
+
+func TestSuperChain(t *testing.T) {
+	// Three-level inheritance with super
+	result := evalInput(t, `
+class A
+  def value()
+    "A"
+  end
+end
+
+class B < A
+  def value()
+    super.value() + "B"
+  end
+end
+
+class C < B
+  def value()
+    super.value() + "C"
+  end
+end
+
+c = C()
+c.value()`)
+	assertString(t, result, "ABC")
+}
+
+func TestSuperOutsideClassError(t *testing.T) {
+	result := evalInput(t, `super`)
+	errObj, ok := result.(*Error)
+	if !ok {
+		t.Fatalf("expected error for super outside class, got %T (%s)", result, result.Inspect())
+	}
+	if !strings.Contains(errObj.Message, "outside of a class") {
+		t.Errorf("expected 'outside of a class' error, got: %s", errObj.Message)
+	}
+}
+
+func TestSuperNoParentError(t *testing.T) {
+	result := evalInput(t, `
+class Alone
+  def test()
+    super.something()
+  end
+end
+
+a = Alone()
+a.test()`)
+	errObj, ok := result.(*Error)
+	if !ok {
+		t.Fatalf("expected error for super with no parent, got %T (%s)", result, result.Inspect())
+	}
+	if !strings.Contains(errObj.Message, "no parent") {
+		t.Errorf("expected 'no parent' error, got: %s", errObj.Message)
+	}
 }

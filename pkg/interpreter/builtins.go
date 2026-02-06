@@ -94,6 +94,10 @@ func registerBuiltins(env *Environment) {
 	env.Set("string_slice", &Builtin{Fn: builtinStringSlice})
 	env.Set("string_contains", &Builtin{Fn: builtinStringContains})
 	env.Set("index_of_string", &Builtin{Fn: builtinIndexOfString})
+
+	// Mutation builtins
+	env.Set("delete", &Builtin{Fn: builtinDelete})
+	env.Set("remove_at", &Builtin{Fn: builtinRemoveAt})
 }
 
 // builtinInterpreter is stored so map/filter/each can call user functions.
@@ -1617,6 +1621,66 @@ func goValueToObject(val interface{}) Object {
 	default:
 		return &String{Value: fmt.Sprintf("%v", v)}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Mutation builtins: delete, remove_at
+// ---------------------------------------------------------------------------
+
+func builtinDelete(args ...Object) Object {
+	if len(args) != 2 {
+		return newError("delete: expected 2 arguments (hash, key), got %d", len(args))
+	}
+	hash, ok := args[0].(*Hash)
+	if !ok {
+		return newError("delete: first argument must be a hash, got %s", args[0].Type())
+	}
+	key, ok := args[1].(*String)
+	if !ok {
+		return newError("delete: second argument must be a string, got %s", args[1].Type())
+	}
+	keyStr := key.Value
+	val, exists := hash.Pairs[keyStr]
+	if !exists {
+		return &Nil{}
+	}
+	// Remove from pairs
+	delete(hash.Pairs, keyStr)
+	// Remove from order
+	for i, k := range hash.Order {
+		if k == keyStr {
+			hash.Order = append(hash.Order[:i], hash.Order[i+1:]...)
+			break
+		}
+	}
+	return val
+}
+
+func builtinRemoveAt(args ...Object) Object {
+	if len(args) != 2 {
+		return newError("remove_at: expected 2 arguments (array, index), got %d", len(args))
+	}
+	arr, ok := args[0].(*Array)
+	if !ok {
+		return newError("remove_at: first argument must be an array, got %s", args[0].Type())
+	}
+	idx, ok := args[1].(*Integer)
+	if !ok {
+		return newError("remove_at: second argument must be an integer, got %s", args[1].Type())
+	}
+	idxVal := idx.Value
+	// Support negative indexing
+	if idxVal < 0 {
+		idxVal = int64(len(arr.Elements)) + idxVal
+	}
+	if idxVal < 0 || idxVal >= int64(len(arr.Elements)) {
+		return newError("remove_at: index out of bounds: %d", idx.Value)
+	}
+	// Get the removed value
+	removed := arr.Elements[idxVal]
+	// Mutate the array in place
+	arr.Elements = append(arr.Elements[:idxVal], arr.Elements[idxVal+1:]...)
+	return removed
 }
 
 // objectToGoValue converts a Vibe Object to a Go interface{} for JSON encoding.

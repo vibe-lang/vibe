@@ -3,6 +3,7 @@ package interpreter
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -148,15 +149,17 @@ func (b *Builtin) Inspect() string { return "builtin function" }
 // Environments form a chain, where each environment can have an outer
 // (parent) environment. This chain implements lexical scoping.
 type Environment struct {
-	store map[string]Object // Map of variable names to their values
-	outer *Environment      // Outer (enclosing) environment, or nil if this is the top level
+	store  map[string]Object // Map of variable names to their values
+	consts map[string]bool   // Set of constant variable names
+	outer  *Environment      // Outer (enclosing) environment, or nil if this is the top level
 }
 
 // NewEnvironment creates a new environment with no outer environment.
 // This is typically used for the global scope.
 func NewEnvironment() *Environment {
 	s := make(map[string]Object)
-	return &Environment{store: s, outer: nil}
+	c := make(map[string]bool)
+	return &Environment{store: s, consts: c, outer: nil}
 }
 
 // NewEnclosedEnvironment creates a new environment with the given outer environment.
@@ -182,10 +185,32 @@ func (e *Environment) Get(name string) (Object, bool) {
 
 // Set sets a value in the environment by name.
 // This creates or updates a variable binding in the current environment.
-// Returns the value that was set.
+// Returns the value that was set, or an error if the name is a constant.
 func (e *Environment) Set(name string, val Object) Object {
+	if e.IsConst(name) {
+		return newError("cannot reassign constant '%s'", name)
+	}
 	e.store[name] = val
 	return val
+}
+
+// SetConst sets a constant value in the environment.
+// Constants cannot be reassigned after being set.
+func (e *Environment) SetConst(name string, val Object) Object {
+	e.store[name] = val
+	e.consts[name] = true
+	return val
+}
+
+// IsConst checks if a name is a constant in the current or any outer environment.
+func (e *Environment) IsConst(name string) bool {
+	if e.consts[name] {
+		return true
+	}
+	if e.outer != nil {
+		return e.outer.IsConst(name)
+	}
+	return false
 }
 
 // Keys returns all variable names in the current environment scope.
@@ -223,6 +248,13 @@ func (i *Interpreter) applyFunction(fn Object, args []Object) Object {
 		return i.applyUserFunction(fn, args)
 	case *ClassObject:
 		return i.callClassConstructor(fn, args)
+	case *SuperProxy:
+		// super(args) — call the parent's initialize method
+		definingClass, initMethod := findMethodInChain(fn.Parent, "initialize")
+		if initMethod != nil {
+			return i.callMethodOnInstanceFromClass(fn.Instance, definingClass, initMethod, args)
+		}
+		return newError("parent class '%s' has no initialize method", fn.Parent.Name)
 	default:
 		return newError("not a function: %s", fn.Type())
 	}
@@ -230,23 +262,114 @@ func (i *Interpreter) applyFunction(fn Object, args []Object) Object {
 
 // applyUserFunction applies a user-defined function to the given arguments.
 func (i *Interpreter) applyUserFunction(fn *Function, args []Object) Object {
+	return i.applyUserFunctionWithTypeArgs(fn, args, nil)
+}
+
+// applyUserFunctionWithTypeArgs applies a user-defined function with optional explicit type args.
+func (i *Interpreter) applyUserFunctionWithTypeArgs(fn *Function, args []Object, typeArgs []string) Object {
 	// Create a new enclosed environment for the function
 	extendedEnv := NewEnclosedEnvironment(fn.Env)
 
-	// Bind parameters to arguments, using defaults for missing args
-	for paramIdx, param := range fn.Parameters {
-		if paramIdx < len(args) {
-			extendedEnv.Set(param.Value, args[paramIdx])
-		} else if paramIdx < len(fn.Defaults) && fn.Defaults[paramIdx] != nil {
-			// Use default value
-			oldEnv := i.env
-			i.env = extendedEnv
-			defaultVal := i.eval(fn.Defaults[paramIdx])
-			i.env = oldEnv
-			if isError(defaultVal) {
-				return defaultVal
+	// If the function has type parameters, resolve them
+	if len(fn.TypeParams) > 0 {
+		resolvedTypes := make(map[string]string) // TypeParam -> concrete type
+
+		// If explicit type args provided, use them
+		if len(typeArgs) > 0 {
+			if len(typeArgs) != len(fn.TypeParams) {
+				return newError("wrong number of type arguments for %s: expected %d, got %d",
+					fn.Name, len(fn.TypeParams), len(typeArgs))
 			}
-			extendedEnv.Set(param.Value, defaultVal)
+			for idx, tp := range fn.TypeParams {
+				resolvedTypes[tp] = typeArgs[idx]
+			}
+		} else {
+			// Infer type parameters from argument types
+			for paramIdx, paramType := range fn.ParamTypes {
+				if paramIdx >= len(args) {
+					break
+				}
+				if paramType != nil {
+					typeAnno := extractTypeName(paramType)
+					if typeAnno != "" {
+						// Check if this type name is one of the type params
+						for _, tp := range fn.TypeParams {
+							if typeAnno == tp {
+								// Infer this type param from the argument
+								argTypeName := objectTypeName(args[paramIdx])
+								if existing, ok := resolvedTypes[tp]; ok {
+									if existing != argTypeName {
+										return newError("type parameter %s inconsistently inferred: %s vs %s",
+											tp, existing, argTypeName)
+									}
+								} else {
+									resolvedTypes[tp] = argTypeName
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Validate argument types against resolved type params
+		for paramIdx, paramType := range fn.ParamTypes {
+			if paramIdx >= len(args) {
+				break
+			}
+			if paramType != nil {
+				typeAnno := extractTypeName(paramType)
+				if resolvedType, ok := resolvedTypes[typeAnno]; ok {
+					argTypeName := objectTypeName(args[paramIdx])
+					if argTypeName != resolvedType {
+						return newError("type mismatch for parameter '%s': expected %s (from %s = %s), got %s",
+							fn.Parameters[paramIdx].Value, resolvedType, typeAnno, resolvedType, argTypeName)
+					}
+				}
+			}
+		}
+	}
+
+	// Bind parameters to arguments, using defaults for missing args
+	if fn.Variadic && len(fn.Parameters) > 0 {
+		// The last parameter is variadic: collect extra args into an array
+		lastParamIdx := len(fn.Parameters) - 1
+		// Bind normal (non-variadic) parameters
+		for paramIdx := 0; paramIdx < lastParamIdx; paramIdx++ {
+			if paramIdx < len(args) {
+				extendedEnv.Set(fn.Parameters[paramIdx].Value, args[paramIdx])
+			} else if paramIdx < len(fn.Defaults) && fn.Defaults[paramIdx] != nil {
+				oldEnv := i.env
+				i.env = extendedEnv
+				defaultVal := i.eval(fn.Defaults[paramIdx])
+				i.env = oldEnv
+				if isError(defaultVal) {
+					return defaultVal
+				}
+				extendedEnv.Set(fn.Parameters[paramIdx].Value, defaultVal)
+			}
+		}
+		// Collect remaining args into an array for the variadic parameter
+		varArgs := []Object{}
+		if lastParamIdx < len(args) {
+			varArgs = args[lastParamIdx:]
+		}
+		extendedEnv.Set(fn.Parameters[lastParamIdx].Value, &Array{Elements: varArgs})
+	} else {
+		for paramIdx, param := range fn.Parameters {
+			if paramIdx < len(args) {
+				extendedEnv.Set(param.Value, args[paramIdx])
+			} else if paramIdx < len(fn.Defaults) && fn.Defaults[paramIdx] != nil {
+				// Use default value
+				oldEnv := i.env
+				i.env = extendedEnv
+				defaultVal := i.eval(fn.Defaults[paramIdx])
+				i.env = oldEnv
+				if isError(defaultVal) {
+					return defaultVal
+				}
+				extendedEnv.Set(param.Value, defaultVal)
+			}
 		}
 	}
 
@@ -266,6 +389,46 @@ func (i *Interpreter) applyUserFunction(fn *Function, args []Object) Object {
 	}
 
 	return result
+}
+
+// extractTypeName extracts a type name string from a type annotation AST expression.
+func extractTypeName(expr ast.Expression) string {
+	switch t := expr.(type) {
+	case *ast.TypeAnnotation:
+		return t.Name
+	case *ast.Identifier:
+		return t.Value
+	default:
+		return ""
+	}
+}
+
+// objectTypeName returns the Vibe type name for an object (e.g., "int", "string").
+func objectTypeName(obj Object) string {
+	switch obj.(type) {
+	case *Integer:
+		return "int"
+	case *Float:
+		return "float"
+	case *String:
+		return "string"
+	case *Boolean:
+		return "boolean"
+	case *Nil:
+		return "nil"
+	case *Array:
+		return "array"
+	case *Hash:
+		return "hash"
+	case *Function:
+		return "function"
+	case *StructInstance:
+		return obj.(*StructInstance).Struct.Name
+	case *ClassInstance:
+		return obj.(*ClassInstance).Class.Name
+	default:
+		return string(obj.Type())
+	}
 }
 
 // Eval evaluates an AST node and returns the resulting object.
@@ -311,6 +474,35 @@ func (i *Interpreter) eval(node ast.Node) Object {
 			}
 			return newError("'self' used outside of a class method")
 		}
+		// Handle 'super' as a special identifier
+		if node.Value == "super" {
+			selfObj, ok := i.env.Get("self")
+			if !ok {
+				return newError("'super' used outside of a class method")
+			}
+			instance, ok := selfObj.(*ClassInstance)
+			if !ok {
+				return newError("'super' used outside of a class context")
+			}
+			// Use the current defining class to find the parent, not instance.Class
+			// This is critical for correct super resolution in multi-level inheritance
+			currentClassObj, ok := i.env.Get("__current_class__")
+			if !ok {
+				// Fallback to instance's class if __current_class__ not set
+				if instance.Class.Parent == nil {
+					return newError("'super' used in a class with no parent")
+				}
+				return &SuperProxy{Instance: instance, Parent: instance.Class.Parent}
+			}
+			currentClass, ok := currentClassObj.(*ClassObject)
+			if !ok {
+				return newError("'super' used outside of a class context")
+			}
+			if currentClass.Parent == nil {
+				return newError("'super' used in a class with no parent")
+			}
+			return &SuperProxy{Instance: instance, Parent: currentClass.Parent}
+		}
 		return i.evalIdentifier(node)
 	case *ast.TypedIdentifier:
 		// For TypedIdentifier, we just evaluate the underlying identifier
@@ -329,6 +521,20 @@ func (i *Interpreter) eval(node ast.Node) Object {
 				return left
 			}
 			methodName := dotExpr.Field.Value
+
+			// Handle super.method(args) — call parent class method
+			if superProxy, ok := left.(*SuperProxy); ok {
+				// Find the method and which class defines it
+				definingClass, method := findMethodInChain(superProxy.Parent, methodName)
+				if method != nil {
+					args := i.evalExpressions(node.Arguments)
+					if len(args) == 1 && isError(args[0]) {
+						return args[0]
+					}
+					return i.callMethodOnInstanceFromClass(superProxy.Instance, definingClass, method, args)
+				}
+				return newError("undefined method '%s' in parent class '%s'", methodName, superProxy.Parent.Name)
+			}
 
 			// If left is a class instance, look up the method on the class
 			if classInst, ok := left.(*ClassInstance); ok {
@@ -387,6 +593,12 @@ func (i *Interpreter) eval(node ast.Node) Object {
 		args := i.evalExpressions(node.Arguments)
 		if len(args) == 1 && isError(args[0]) {
 			return args[0]
+		}
+		// If explicit type args are provided, pass them through
+		if len(node.TypeArgs) > 0 {
+			if fn, ok := function.(*Function); ok {
+				return i.applyUserFunctionWithTypeArgs(fn, args, node.TypeArgs)
+			}
 		}
 		return i.applyFunction(function, args)
 	case *ast.IntegerLiteral:
@@ -467,8 +679,14 @@ func (i *Interpreter) eval(node ast.Node) Object {
 		return i.evalPipeExpression(node)
 	case *ast.InExpression:
 		return i.evalInExpression(node)
+	case *ast.NilCoalesceExpression:
+		return i.evalNilCoalesceExpression(node)
 	case *ast.DestructureAssignment:
 		return i.evalDestructureAssignment(node)
+	case *ast.ConstStatement:
+		return i.evalConstStatement(node)
+	case *ast.PostfixCondition:
+		return i.evalPostfixCondition(node)
 	default:
 		return newError("unknown node type: %T", node)
 	}
@@ -630,7 +848,10 @@ func (i *Interpreter) evalAssignmentExpression(node *ast.AssignmentExpression) O
 		}
 	}
 
-	i.env.Set(node.Name.Value, val)
+	result := i.env.Set(node.Name.Value, val)
+	if isError(result) {
+		return result
+	}
 	return val
 }
 
@@ -881,6 +1102,7 @@ func (i *Interpreter) GetEnvironment() *Environment {
 // It stores the structure of a user-defined type.
 type Struct struct {
 	Name          string
+	TypeParams    []string // Generic type parameters (e.g., ["A", "B"])
 	Fields        map[string]Object
 	DefaultValues map[string]Object
 }
@@ -914,8 +1136,9 @@ func (s *Struct) Inspect() string {
 // StructInstance represents an instance of a struct.
 // It contains the actual field values for a specific struct instance.
 type StructInstance struct {
-	Struct *Struct
-	Fields map[string]Object
+	Struct   *Struct
+	TypeArgs []string // Resolved type arguments (e.g., ["int", "string"])
+	Fields   map[string]Object
 }
 
 func (si *StructInstance) Type() ObjectType { return STRUCT_INSTANCE_OBJ }
@@ -973,6 +1196,7 @@ func (i *Interpreter) evalStructStatement(node *ast.StructStatement) Object {
 	// Create a new struct object
 	structObj := &Struct{
 		Name:          node.Name.Value,
+		TypeParams:    node.TypeParams,
 		Fields:        make(map[string]Object),
 		DefaultValues: make(map[string]Object),
 	}
@@ -1041,6 +1265,13 @@ func (i *Interpreter) evalStructLiteral(node *ast.StructLiteral) Object {
 
 	// If it's a class, use class constructor
 	if classObj, ok := structObj.(*ClassObject); ok {
+		// Validate type args count if provided
+		if len(node.TypeArgs) > 0 && len(classObj.TypeParams) > 0 {
+			if len(node.TypeArgs) != len(classObj.TypeParams) {
+				return newError("wrong number of type arguments for %s: expected %d, got %d",
+					node.Type, len(classObj.TypeParams), len(node.TypeArgs))
+			}
+		}
 		// Evaluate field expressions as positional args
 		args := []Object{}
 		for _, expr := range node.Fields {
@@ -1050,7 +1281,12 @@ func (i *Interpreter) evalStructLiteral(node *ast.StructLiteral) Object {
 			}
 			args = append(args, val)
 		}
-		return i.callClassConstructor(classObj, args)
+		instance := i.callClassConstructor(classObj, args)
+		// Store type args on the instance
+		if classInst, ok := instance.(*ClassInstance); ok && len(node.TypeArgs) > 0 {
+			classInst.TypeArgs = node.TypeArgs
+		}
+		return instance
 	}
 
 	structType, ok := structObj.(*Struct)
@@ -1058,15 +1294,35 @@ func (i *Interpreter) evalStructLiteral(node *ast.StructLiteral) Object {
 		return newError("not a struct type: %s", node.Type)
 	}
 
+	// Validate type args count if provided
+	if len(node.TypeArgs) > 0 && len(structType.TypeParams) > 0 {
+		if len(node.TypeArgs) != len(structType.TypeParams) {
+			return newError("wrong number of type arguments for %s: expected %d, got %d",
+				node.Type, len(structType.TypeParams), len(node.TypeArgs))
+		}
+	}
+
 	// Create a new struct instance with default values
 	instance := &StructInstance{
-		Struct: structType,
-		Fields: make(map[string]Object),
+		Struct:   structType,
+		TypeArgs: node.TypeArgs,
+		Fields:   make(map[string]Object),
 	}
 
 	// Copy default values
 	for field, value := range structType.DefaultValues {
 		instance.Fields[field] = value
+	}
+
+	// Build type param -> concrete type mapping if type args are provided
+	var typeArgMap map[string]string
+	if len(node.TypeArgs) > 0 && len(structType.TypeParams) > 0 {
+		typeArgMap = make(map[string]string)
+		for idx, tp := range structType.TypeParams {
+			if idx < len(node.TypeArgs) {
+				typeArgMap[tp] = node.TypeArgs[idx]
+			}
+		}
 	}
 
 	// Apply provided field values
@@ -1080,6 +1336,14 @@ func (i *Interpreter) evalStructLiteral(node *ast.StructLiteral) Object {
 		value := i.eval(valueExpr)
 		if isError(value) {
 			return value
+		}
+
+		// If we have type arg mappings, validate field type
+		if typeArgMap != nil {
+			// Check if the field's declared type is a type parameter
+			if err := i.validateFieldTypeArg(field, value, typeArgMap); err != nil {
+				return err
+			}
 		}
 
 		instance.Fields[field] = value
@@ -1138,12 +1402,18 @@ func (i *Interpreter) GetLastError() Object {
 }
 
 // evalForLoop evaluates a for loop statement.
-// It iterates over a collection (array, range, etc.) and executes the body for each element.
+// It iterates over a collection (array, range, hash, etc.) and executes the body for each element.
+// Supports: for x in array, for k, v in hash
 func (i *Interpreter) evalForLoop(node *ast.ForLoop) Object {
 	// Evaluate the collection to iterate over
 	collection := i.eval(node.Collection)
 	if isError(collection) {
 		return collection
+	}
+
+	// Handle hash iteration: for k, v in hash
+	if hash, ok := collection.(*Hash); ok && node.ValueIterator != nil {
+		return i.evalForLoopHash(node, hash)
 	}
 
 	// Convert range to array if needed
@@ -1154,12 +1424,16 @@ func (i *Interpreter) evalForLoop(node *ast.ForLoop) Object {
 	// Check if the collection is an array
 	array, ok := collection.(*Array)
 	if !ok {
-		return newError("for loop collection must be an array or range, got %s", collection.Type())
+		return newError("for loop collection must be an array, range, or hash, got %s", collection.Type())
 	}
 
 	var result Object = &Nil{}
-	for _, element := range array.Elements {
+	for idx, element := range array.Elements {
 		i.env.Set(node.Iterator.Value, element)
+		// If there's a value iterator on an array, set it to the index
+		if node.ValueIterator != nil {
+			i.env.Set(node.ValueIterator.Value, &Integer{Value: int64(idx)})
+		}
 
 		result = i.evalBlockStatement(node.Body)
 
@@ -1178,6 +1452,41 @@ func (i *Interpreter) evalForLoop(node *ast.ForLoop) Object {
 	}
 
 	// Don't leak break/continue signals out of the loop
+	if _, ok := result.(*BreakSignal); ok {
+		return &Nil{}
+	}
+	if _, ok := result.(*ContinueSignal); ok {
+		return &Nil{}
+	}
+
+	return result
+}
+
+// evalForLoopHash iterates over a hash, binding key and value to the iterators.
+func (i *Interpreter) evalForLoopHash(node *ast.ForLoop, hash *Hash) Object {
+	var result Object = &Nil{}
+
+	for _, key := range hash.Order {
+		value := hash.Pairs[key]
+		i.env.Set(node.Iterator.Value, &String{Value: key})
+		i.env.Set(node.ValueIterator.Value, value)
+
+		result = i.evalBlockStatement(node.Body)
+
+		if isError(result) {
+			break
+		}
+		if _, ok := result.(*BreakSignal); ok {
+			break
+		}
+		if _, ok := result.(*ContinueSignal); ok {
+			continue
+		}
+		if _, ok := result.(*ReturnValue); ok {
+			return result
+		}
+	}
+
 	if _, ok := result.(*BreakSignal); ok {
 		return &Nil{}
 	}
@@ -1218,6 +1527,20 @@ func (i *Interpreter) evalIndexExpression(node *ast.IndexExpression) Object {
 			return newError("array index out of bounds: %d", idx.Value)
 		}
 		return obj.Elements[idxVal]
+	case *String:
+		idx, ok := index.(*Integer)
+		if !ok {
+			return newError("string index must be an integer, got %s", index.Type())
+		}
+		runes := []rune(obj.Value)
+		idxVal := idx.Value
+		if idxVal < 0 {
+			idxVal = int64(len(runes)) + idxVal
+		}
+		if idxVal < 0 || idxVal >= int64(len(runes)) {
+			return newError("string index out of bounds: %d", idx.Value)
+		}
+		return &String{Value: string(runes[idxVal])}
 	case *Hash:
 		keyStr := index.Inspect()
 		val, exists := obj.Pairs[keyStr]
@@ -1241,6 +1564,16 @@ func (i *Interpreter) evalDotExpression(node *ast.DotExpression) Object {
 	}
 
 	fieldName := node.Field.Value
+
+	// Check if the left side is a SuperProxy (for super.method())
+	if superProxy, ok := left.(*SuperProxy); ok {
+		// Look up the method on the parent class, tracking which class defines it
+		definingClass, method := findMethodInChain(superProxy.Parent, fieldName)
+		if method != nil {
+			return i.callMethodOnInstanceFromClass(superProxy.Instance, definingClass, method, []Object{})
+		}
+		return newError("undefined method '%s' in parent class '%s'", fieldName, superProxy.Parent.Name)
+	}
 
 	// Check if the left side is a class instance
 	if classInst, ok := left.(*ClassInstance); ok {
@@ -1361,6 +1694,15 @@ func (i *Interpreter) evalInfixExpression(node *ast.InfixExpression) Object {
 	case left.Type() == ARRAY_OBJ && right.Type() == ARRAY_OBJ:
 		return i.evalArrayInfixExpression(node.Operator, left, right)
 
+	// String * integer repetition
+	case node.Operator == "*" && left.Type() == STRING_OBJ && right.Type() == INTEGER_OBJ:
+		str := left.(*String).Value
+		count := right.(*Integer).Value
+		if count < 0 {
+			return newError("string repetition count must be non-negative")
+		}
+		return &String{Value: strings.Repeat(str, int(count))}
+
 	// String + any other type: auto-convert to string and concatenate
 	case node.Operator == "+" && (left.Type() == STRING_OBJ || right.Type() == STRING_OBJ):
 		return &String{Value: left.Inspect() + right.Inspect()}
@@ -1410,6 +1752,8 @@ func (i *Interpreter) evalIntegerInfixExpression(operator string, left, right Ob
 			return newError("division by zero")
 		}
 		return &Integer{Value: leftVal % rightVal}
+	case "**":
+		return &Integer{Value: int64(math.Pow(float64(leftVal), float64(rightVal)))}
 	case "<":
 		return &Boolean{Value: leftVal < rightVal}
 	case ">":
@@ -1444,6 +1788,8 @@ func (i *Interpreter) evalFloatInfixExpression(operator string, left, right Obje
 			return newError("division by zero")
 		}
 		return &Float{Value: leftVal / rightVal}
+	case "**":
+		return &Float{Value: math.Pow(leftVal, rightVal)}
 	case "<":
 		return &Boolean{Value: leftVal < rightVal}
 	case ">":
@@ -1489,6 +1835,8 @@ func (i *Interpreter) evalMixedNumberInfixExpression(operator string, left, righ
 			return newError("division by zero")
 		}
 		return &Float{Value: leftVal / rightVal}
+	case "**":
+		return &Float{Value: math.Pow(leftVal, rightVal)}
 	case "<":
 		return &Boolean{Value: leftVal < rightVal}
 	case ">":
@@ -1518,6 +1866,14 @@ func (i *Interpreter) evalStringInfixExpression(operator string, left, right Obj
 		return &Boolean{Value: leftVal == rightVal}
 	case "!=":
 		return &Boolean{Value: leftVal != rightVal}
+	case "<":
+		return &Boolean{Value: leftVal < rightVal}
+	case ">":
+		return &Boolean{Value: leftVal > rightVal}
+	case "<=":
+		return &Boolean{Value: leftVal <= rightVal}
+	case ">=":
+		return &Boolean{Value: leftVal >= rightVal}
 	default:
 		return newError("unknown operator: %s %s %s", left.Type(), operator, right.Type())
 	}
@@ -1723,9 +2079,10 @@ func (i *Interpreter) evalRangeCallExpression(node *ast.RangeCallExpression) Obj
 
 // ClassObject represents a class definition in Vibe.
 type ClassObject struct {
-	Name    string
-	Parent  *ClassObject
-	Methods map[string]*Function
+	Name       string
+	TypeParams []string // Generic type parameters (e.g., ["T", "U"])
+	Parent     *ClassObject
+	Methods    map[string]*Function
 }
 
 func (c *ClassObject) Type() ObjectType { return CLASS_OBJ }
@@ -1742,10 +2099,24 @@ func (c *ClassObject) GetMethod(name string) (*Function, bool) {
 	return nil, false
 }
 
+// findMethodInChain searches for a method starting from the given class,
+// returning both the class that defines the method and the method itself.
+// This is critical for correct super resolution in multi-level inheritance.
+func findMethodInChain(class *ClassObject, name string) (*ClassObject, *Function) {
+	if fn, ok := class.Methods[name]; ok {
+		return class, fn
+	}
+	if class.Parent != nil {
+		return findMethodInChain(class.Parent, name)
+	}
+	return nil, nil
+}
+
 // ClassInstance represents an instance of a class.
 type ClassInstance struct {
-	Class  *ClassObject
-	Fields map[string]Object
+	Class    *ClassObject
+	TypeArgs []string // Resolved type arguments (e.g., ["int", "string"])
+	Fields   map[string]Object
 }
 
 func (ci *ClassInstance) Type() ObjectType { return INSTANCE_OBJ }
@@ -1772,6 +2143,10 @@ type Function struct {
 	Body       *ast.BlockStatement
 	Env        *Environment
 	Name       string
+	TypeParams []string         // Generic type parameters (e.g., ["T", "U"])
+	ParamTypes []ast.Expression // Parameter type annotations for type checking
+	ReturnType ast.Expression   // Return type annotation
+	Variadic   bool             // Whether the last parameter is variadic (*args)
 }
 
 func (f *Function) Type() ObjectType { return FUNCTION_OBJ }
@@ -1794,6 +2169,10 @@ func (i *Interpreter) evalFunctionLiteral(node *ast.FunctionLiteral) Object {
 		Defaults:   node.ParamDefaults,
 		Body:       node.Body,
 		Env:        i.env,
+		TypeParams: node.TypeParams,
+		ParamTypes: node.ParamTypes,
+		ReturnType: node.ReturnType,
+		Variadic:   node.Variadic,
 	}
 
 	// If it's a named function (def), bind it in the environment

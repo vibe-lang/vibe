@@ -1,6 +1,6 @@
 # Vibe Programming Language
 
-A Ruby-inspired interpreted language with type annotations, built in Go.
+A Ruby-inspired interpreted language with TypeScript-style type annotations, built in Go.
 
 ```vibe
 # Hello World in Vibe
@@ -11,55 +11,98 @@ end
 puts(greet("World"))
 ```
 
+## Installation
+
+### One-line install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vibe-lang/vibe/main/install.sh | sh
+```
+
+This detects your platform (Linux/macOS, x86_64/arm64), downloads the latest release, verifies the SHA-256 checksum, and installs to `~/.vibe/bin`.
+
+### Options
+
+Pin a specific version:
+
+```bash
+VIBE_VERSION=0.2.0 curl -fsSL https://raw.githubusercontent.com/vibe-lang/vibe/main/install.sh | sh
+```
+
+Custom install directory:
+
+```bash
+VIBE_INSTALL=/opt/vibe curl -fsSL https://raw.githubusercontent.com/vibe-lang/vibe/main/install.sh | sh
+```
+
+### Build from source
+
+Requires Go 1.24+.
+
+```bash
+git clone https://github.com/vibe-lang/vibe.git
+cd vibe
+./build.sh
+```
+
+### Verify
+
+```bash
+vibe --version
+```
+
 ## Features
 
-- **Everything is an object** — all primitives support method-style calls (`"hello".len`, `[1,2,3].sort`, `42.type`)
-- Ruby-like syntax — `def`/`end` blocks, implicit returns, no semicolons
-- Type annotations — optional `name: type` on variables, parameters, and return types
-- Structs — lightweight data types with named fields and mutation
-- Hash maps — `{key: value}` literals with bracket access
-- First-class functions — closures, anonymous functions, higher-order functions (`map`, `filter`, `each`)
-- Control flow — `if`/`elsif`/`else`, `for`/`in`, `while`, `break`/`continue`
-- Logical operators — `&&` and `||` with short-circuit evaluation
-- Error handling — `try`/`catch`/`throw`
-- String interpolation — `"Hello, ${name}!"` with arbitrary expressions
-- Ranges — `1..5` (inclusive) and `1...5` (exclusive)
-- Auto type coercion — string + any type, mixed int/float arithmetic
-- 35 built-in functions — I/O, collections, math, strings, file operations
-- File imports — `import "path/to/file.vb"`
-- REPL — interactive mode with history and arrow key navigation
+- **Everything is an object** -- all primitives support method-style calls (`"hello".len`, `[1,2,3].sort`, `42.type`)
+- **Ruby-like syntax** -- `def`/`end` blocks, implicit returns, no semicolons
+- **Type annotations** -- optional `name: type` on variables, parameters, and return types
+- **Union and optional types** -- `string | nil`, `int?`
+- **Generics** -- `def identity<T>(x: T): T`, `class Box<T>`, `struct Pair<A, B>`
+- **Classes with inheritance** -- `class Dog < Animal` with `initialize`, `self`, `super`
+- **Structs** -- lightweight data types with named fields and mutation
+- **Enums** -- `enum Color Red Green Blue end`
+- **Hash maps** -- `{key: value}` literals with bracket and dot access
+- **First-class functions** -- closures, anonymous functions, arrow functions (`-> (x) { x * 2 }`)
+- **Higher-order functions** -- `map`, `filter`, `reduce`, `each`, `sort_by`, and 30+ more
+- **Control flow** -- `if`/`elsif`/`else`, `unless`, `case`/`when`, `for`/`in`, `while`, `until`, `break`/`continue`
+- **Postfix conditionals** -- `return "no" if x < 0`, `y = "ok" unless invalid`
+- **Ternary operator** -- `x > 0 ? "positive" : "non-positive"`
+- **Nil coalescing** -- `value ?? default`
+- **Pipe operator** -- `data |> transform |> format`
+- **Destructuring** -- `a, b, c = [1, 2, 3]`
+- **Compound assignment** -- `+=`, `-=`, `*=`, `/=`, `%=`
+- **Power operator** -- `2 ** 10` (1024)
+- **String repetition** -- `"ha" * 3` ("hahaha")
+- **String indexing** -- `"hello"[0]` ("h"), `"hello"[-1]` ("o")
+- **String comparison** -- `"apple" < "banana"` (lexicographic)
+- **Multi-line strings** -- `"""..."""` with preserved newlines
+- **`in` operator** -- `"x" in array`, `key in hash`, `char in string`, `5 in 1..10`
+- **Variadic functions** -- `def log(level, *messages)`
+- **Constants** -- `const PI = 3.14159`
+- **Default parameters** -- `def greet(name = "World")`
+- **Negative array indexing** -- `arr[-1]` for last element
+- **Error handling** -- `try`/`catch`/`finally`/`throw`
+- **String interpolation** -- `"Hello, ${name}!"` with arbitrary expressions
+- **Ranges** -- `1..5` (inclusive) and `1...5` (exclusive)
+- **Auto type coercion** -- string + any type, mixed int/float arithmetic
+- **Standard library** -- `import "math"`, `import "regex"`, `import "concurrent"`
+- **60+ built-in functions** -- I/O, collections, math, strings, file operations, JSON
+- **File imports** -- `import "path/to/file.vb"`
+- **REPL** -- interactive mode with history and arrow key navigation
 
 ## Quick Start
 
-### Build
-
 ```bash
-./build.sh
-# or
-make build
-```
+# Run a script
+vibe run examples/hello.vb
 
-### Run a script
-
-```bash
-./vibe run examples/hello.vb
-```
-
-### Start the REPL
-
-```bash
-./vibe repl
-```
-
-### Check version
-
-```bash
-./vibe --version
+# Start the REPL
+vibe repl
 ```
 
 ## Language Overview
 
-### Variables
+### Variables and Constants
 
 ```vibe
 # Type inference
@@ -74,6 +117,10 @@ let count = 42
 greeting: string = "hello"
 active: boolean = true
 numbers: int[] = [1, 2, 3]
+
+# Constants (cannot be reassigned)
+const MAX_SIZE = 100
+const PI: float = 3.14159
 ```
 
 ### Functions
@@ -89,73 +136,182 @@ def multiply(x: int, y: int): int
   x * y
 end
 
-# Explicit return
-def factorial(n: int): int
-  if n <= 1
-    return 1
-  end
-  n * factorial(n - 1)
+# Default parameters
+def greet(name = "World")
+  "Hello, ${name}!"
 end
 
-puts(add(5, 3))        # 8
-puts(factorial(10))     # 3628800
+greet()         # "Hello, World!"
+greet("Alice")  # "Hello, Alice!"
+
+# Variadic functions
+def sum_all(*nums)
+  total = 0
+  for n in nums
+    total += n
+  end
+  total
+end
+
+sum_all(1, 2, 3, 4, 5)  # 15
+
+# Variadic with required params
+def log(level, *messages)
+  for msg in messages
+    puts("[${level}] ${msg}")
+  end
+end
 ```
 
-### Anonymous Functions
+### Anonymous and Arrow Functions
 
 ```vibe
 # fn keyword with brace syntax
 doubler = fn(x) { x * 2 }
 puts(doubler(5))     # 10
 
-# Passing anonymous functions
+# Arrow functions
+square = -> (x) { x * x }
+puts(square(4))      # 16
+
+# Passing to higher-order functions
 nums = [1, 2, 3, 4, 5]
-result = map(nums, fn(x) { x * x })
+result = map(nums, -> (x) { x * x })
 puts(result)         # [1, 4, 9, 16, 25]
+```
+
+### Pipe Operator
+
+```vibe
+# Chain transformations with |>
+result = [1, 2, 3, 4, 5] |> reverse |> first
+puts(result)  # 5
+
+# With arguments
+"hello world" |> replace("world", "vibe") |> upcase
+```
+
+### Destructuring
+
+```vibe
+# Array destructuring
+a, b, c = [1, 2, 3]
+puts(a)  # 1
+puts(b)  # 2
+puts(c)  # 3
+
+# Hash destructuring
+name, age = {"name": "Alice", "age": 30}
 ```
 
 ### Method-Style Calls
 
-Every value in Vibe is an object. All built-in functions can be called as methods, and parentheses are optional for zero-argument methods:
+Every value in Vibe is an object. All built-in functions can be called as methods:
 
 ```vibe
 # String methods
 "hello world".split(" ")       # ["hello", "world"]
 "hello".len                    # 5
-"hello".replace("l", "r")     # "herro"
-"  padded  ".trim              # "padded"
-"hello".contains("ell")       # true
-"hello".type                   # STRING
+"hello".upcase                 # "HELLO"
+"HELLO".downcase               # "hello"
+"hello".capitalize             # "Hello"
+"hello".starts_with("he")     # true
+"hello".ends_with("lo")       # true
+"hello".repeat(3)             # "hellohellohello"
+"hello".chars                  # ["h", "e", "l", "l", "o"]
+"hello".string_reverse         # "olleh"
+"hello"[0]                     # "h"
+"hello"[-1]                    # "o"
 
 # Array methods
 [3, 1, 2].sort                 # [1, 2, 3]
 [1, 2, 3].reverse              # [3, 2, 1]
 [1, 2, 3].first                # 1
 [1, 2, 3].last                 # 3
-[1, 2, 3].len                  # 3
-[1, 2, 3].contains(2)          # true
-
-# Works on any type
-42.to_s                        # "42"
-3.14.to_i                      # 3
-true.type                      # BOOLEAN
 
 # Method chaining
 "  hello world  ".trim.split(" ").reverse   # ["world", "hello"]
-
-# Higher-order methods
-def double(x: int): int
-  x * 2
-end
-[1, 2, 3].map(double)         # [2, 4, 6]
-
-# Hash methods
-h = {a: 1, b: 2}
-h.keys                         # ["a", "b"]
-h.values                       # [1, 2]
 ```
 
-Parentheses are optional for zero-argument calls: `arr.len` and `arr.len()` are equivalent.
+### Classes
+
+```vibe
+class Animal
+  def initialize(name)
+    self.name = name
+  end
+
+  def speak()
+    "..."
+  end
+end
+
+class Dog < Animal
+  def speak()
+    "Woof! I'm ${self.name}"
+  end
+end
+
+class Puppy < Dog
+  def speak()
+    super.speak() + " (tiny bark)"
+  end
+end
+
+fido = Dog("Fido")
+puts(fido.speak())   # "Woof! I'm Fido"
+```
+
+### Generics
+
+```vibe
+# Generic functions
+def identity<T>(x: T): T
+  x
+end
+
+identity<int>(42)      # 42
+identity<string>("hi") # "hi"
+
+# Type inference
+identity(42)           # T inferred as int
+
+# Generic classes
+class Box<T>
+  def initialize(value: T)
+    self.value = value
+  end
+
+  def get(): T
+    self.value
+  end
+end
+
+box = Box<int>(value: 42)
+puts(box.get())  # 42
+
+# Generic structs
+struct Pair<A, B>
+  first: A
+  second: B
+end
+
+p = Pair<int, string>(first: 1, second: "hello")
+```
+
+### Enums
+
+```vibe
+enum Color
+  Red
+  Green
+  Blue
+end
+
+puts(Color.Red)    # 0
+puts(Color.Green)  # 1
+puts(Color.Blue)   # 2
+```
 
 ### Structs
 
@@ -182,59 +338,50 @@ else
   grade = "F"
 end
 
-# If expressions (return values)
-status = if age >= 18
-  "adult"
-else
-  "minor"
+# Unless (inverse of if)
+unless logged_in
+  puts("Please log in")
 end
 
-# For loops with ranges
+# Case / when
+case status
+when "active"
+  puts("Active")
+when "inactive", "disabled"
+  puts("Not active")
+else
+  puts("Unknown")
+end
+
+# Ternary
+result = x > 0 ? "positive" : "non-positive"
+
+# Postfix conditionals
+return "error" if x < 0
+y = "ok" unless invalid
+
+# For loops
 for i in 1..10
   puts(i)
 end
 
-# For loops with arrays
-for name in ["Alice", "Bob", "Charlie"]
-  puts("Hello, ${name}!")
+for name in ["Alice", "Bob"]
+  puts(name)
 end
 
-# While loops with break/continue
-i = 0
-while i < 100
-  i = i + 1
-  if i % 2 == 0
-    continue
-  end
-  if i > 10
-    break
-  end
-  puts(i)
-end
-```
-
-### Arrays and Hash Maps
-
-```vibe
-# Arrays
-numbers = [1, 2, 3, 4, 5]
-numbers[0] = 10              # Mutation
-squares = []
-for n in numbers
-  squares = squares + [n * n]
+# Hash iteration
+for key, value in {a: 1, b: 2}
+  puts("${key}: ${value}")
 end
 
-# Typed arrays
-names: string[] = ["Alice", "Bob"]
+# While / until
+while count < 10
+  count += 1
+end
 
-# Array concatenation
-a = [1, 2] + [3, 4]         # [1, 2, 3, 4]
-
-# Hash maps (bare identifier keys or string keys)
-config = {host: "localhost", port: 8080}
-settings = {"theme": "dark", "font_size": 14}
-puts(config["host"])         # localhost
-config["port"] = 9090        # Mutation
+until done
+  process_next()
+end
 ```
 
 ### Operators
@@ -246,28 +393,82 @@ config["port"] = 9090        # Mutation
 6 * 8     # 48
 10 / 3    # 3
 15 % 4    # 3
+2 ** 10   # 1024 (power)
+
+# Compound assignment
+x += 5    x -= 3    x *= 2    x /= 4    x %= 3
+
+# String repetition
+"ha" * 3        # "hahaha"
+
+# Nil coalescing
+value ?? "default"      # returns value if non-nil, else "default"
+a ?? b ?? c             # chained
 
 # Comparison
 a == b    a != b
 a < b     a > b
 a <= b    a >= b
+"apple" < "banana"      # lexicographic string comparison
 
 # Logical (short-circuit)
 true && false    # false
 true || false    # true
 !true            # false
 
-# Prefix
--5        # negation
-!true     # logical NOT
+# Containment
+5 in [1, 2, 3, 4, 5]   # true
+"x" in "text"           # true
+"key" in {key: 1}       # true
+5 in 1..10              # true
+```
 
-# Mixed int/float (auto-promotes to float)
-5 + 3.14         # 8.14
-10 / 3.0         # 3.333...
+### Arrays and Hash Maps
 
-# String + any type (auto-converts to string)
-"count: " + 42   # "count: 42"
-"pi: " + 3.14    # "pi: 3.14"
+```vibe
+# Arrays with negative indexing
+numbers = [1, 2, 3, 4, 5]
+numbers[0]       # 1
+numbers[-1]      # 5 (last element)
+numbers[-2]      # 4
+
+# Array mutation
+delete_result = remove_at(arr, 1)  # removes and returns element at index
+
+# Hash maps
+config = {host: "localhost", port: 8080}
+config["host"]           # "localhost"
+config.host              # "localhost" (dot access)
+delete(config, "port")   # removes key, returns removed value
+
+# Hash iteration
+for k, v in config
+  puts("${k} = ${v}")
+end
+```
+
+### Strings
+
+```vibe
+# Multi-line strings
+text = """
+This is a
+multi-line string
+"""
+
+# String indexing
+"hello"[0]     # "h"
+"hello"[-1]    # "o"
+
+# String repetition
+"abc" * 3      # "abcabcabc"
+
+# String comparison
+"apple" < "banana"   # true (lexicographic)
+
+# String interpolation with any expression
+"Result: ${2 + 2}"
+"Type: ${value.type}"
 ```
 
 ### Ranges
@@ -295,21 +496,51 @@ try
   result = risky_operation()
 catch e
   puts("Error: ${e}")
+finally
+  cleanup()
 end
 
 throw "something went wrong"
 ```
 
-### String Interpolation
-
-Supports arbitrary expressions inside `${...}`:
+### Union and Optional Types
 
 ```vibe
-name = "World"
-puts("Hello, ${name}!")          # Hello, World!
-puts("2 + 2 = ${2 + 2}")        # 2 + 2 = 4
-puts("Type: ${42.type}")         # Type: INTEGER
-puts("Big? ${age > 100}")        # Big? false
+# Union types
+x: string | int = "hello"
+x = 42  # also valid
+
+# Optional types (shorthand for type | nil)
+name: string? = nil
+name = "Alice"  # also valid
+```
+
+### Standard Library
+
+```vibe
+# Math module
+import "math"
+math_sqrt(16)     # 4
+math_floor(3.7)   # 3
+math_ceil(3.2)    # 4
+math_round(3.5)   # 4
+math_pow(2, 10)   # 1024
+math_pi()         # 3.14159...
+math_random()     # random float 0..1
+
+# Regex module
+import "regex"
+regex_match("hello123", "[0-9]+")       # "123"
+regex_match_all("a1b2c3", "[0-9]+")     # ["1", "2", "3"]
+regex_replace("hello world", "world", "vibe")  # "hello vibe"
+
+# Concurrent module
+import "concurrent"
+task = spawn(-> { expensive_work() })
+result = await(task)
+ch = Channel()
+send(ch, "message")
+msg = receive(ch)
 ```
 
 ### Imports
@@ -325,14 +556,16 @@ import "lib/helpers.vb"
 |----------|-----------|
 | **I/O** | `puts`, `print`, `input` |
 | **Type** | `type`, `to_s`, `to_i`, `to_f` |
-| **Collections** | `len`, `push`, `pop`, `first`, `last`, `rest`, `append` |
-| **Higher-order** | `map`, `filter`, `each` |
-| **Ordering** | `sort`, `reverse` |
-| **Search** | `contains` (works on arrays, strings, and hashes) |
+| **Collections** | `len`, `push`, `pop`, `first`, `last`, `rest`, `append`, `unshift` |
+| **Higher-order** | `map`, `filter`, `each`, `reduce`, `find`, `find_index`, `any`, `all`, `none`, `reject`, `flat_map`, `sort_by`, `map_with_index`, `each_with_index`, `partition`, `group_by` |
+| **Array** | `sort`, `reverse`, `flatten`, `compact`, `uniq`, `take`, `drop`, `slice`, `zip`, `concat`, `sum`, `count`, `empty`, `index_of` |
+| **Mutation** | `delete` (hash), `remove_at` (array) |
+| **Search** | `contains` (arrays, strings, hashes) |
 | **Hash** | `keys`, `values` |
-| **String** | `split`, `join`, `replace`, `trim`, `string_length` |
+| **String** | `split`, `join`, `replace`, `trim`, `string_length`, `upcase`, `downcase`, `capitalize`, `starts_with`, `ends_with`, `repeat`, `chars`, `pad_start`, `pad_end`, `string_reverse`, `string_slice`, `string_contains`, `index_of_string` |
 | **Math** | `abs`, `min`, `max` |
 | **File** | `read_file`, `write_file`, `file_exists` |
+| **JSON** | `json_parse`, `json_encode` |
 | **System** | `exit` |
 
 All built-in functions can also be called as methods: `arr.sort()` is equivalent to `sort(arr)`.
@@ -384,4 +617,4 @@ The REPL supports full line editing with arrow keys, persistent history across s
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT -- see [LICENSE](LICENSE).

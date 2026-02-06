@@ -387,8 +387,9 @@ func (i *Interpreter) evalEnumStatement(node *ast.EnumStatement) Object {
 
 func (i *Interpreter) evalClassLiteral(node *ast.ClassLiteral) Object {
 	classObj := &ClassObject{
-		Name:    node.Name.Value,
-		Methods: make(map[string]*Function),
+		Name:       node.Name.Value,
+		TypeParams: node.TypeParams,
+		Methods:    make(map[string]*Function),
 	}
 
 	// Resolve parent class if specified
@@ -450,8 +451,16 @@ func (i *Interpreter) callClassConstructor(classObj *ClassObject, args []Object)
 
 // callMethodOnInstance calls a method on a class instance, binding self.
 func (i *Interpreter) callMethodOnInstance(instance *ClassInstance, method *Function, args []Object) Object {
+	return i.callMethodOnInstanceFromClass(instance, instance.Class, method, args)
+}
+
+// callMethodOnInstanceFromClass calls a method on a class instance with a specific defining class context.
+// The definingClass is used to resolve 'super' correctly in multi-level inheritance chains.
+func (i *Interpreter) callMethodOnInstanceFromClass(instance *ClassInstance, definingClass *ClassObject, method *Function, args []Object) Object {
 	extendedEnv := NewEnclosedEnvironment(method.Env)
 	extendedEnv.Set("self", instance)
+	// Store the defining class so 'super' can resolve relative to the correct class
+	extendedEnv.Set("__current_class__", definingClass)
 
 	// Bind parameters
 	for paramIdx, param := range method.Parameters {
@@ -693,6 +702,135 @@ func (i *Interpreter) evalPipeExpression(node *ast.PipeExpression) Object {
 		return fn
 	}
 	return i.applyFunction(fn, []Object{left})
+}
+
+// ---------------------------------------------------------------------------
+// Nil coalescing: expr ?? default
+// ---------------------------------------------------------------------------
+
+func (i *Interpreter) evalNilCoalesceExpression(node *ast.NilCoalesceExpression) Object {
+	left := i.eval(node.Left)
+	if isError(left) {
+		return left
+	}
+	// If left is nil, evaluate and return right side
+	if _, ok := left.(*Nil); ok {
+		return i.eval(node.Right)
+	}
+	return left
+}
+
+// ---------------------------------------------------------------------------
+// Super keyword support
+// ---------------------------------------------------------------------------
+
+// SuperProxy is a temporary object that facilitates super method calls.
+// It binds a class instance to its parent class for method resolution.
+type SuperProxy struct {
+	Instance *ClassInstance
+	Parent   *ClassObject
+}
+
+func (sp *SuperProxy) Type() ObjectType { return "SUPER_PROXY" }
+func (sp *SuperProxy) Inspect() string  { return "<super>" }
+
+// ---------------------------------------------------------------------------
+// Generic type validation helpers
+// ---------------------------------------------------------------------------
+
+// validateFieldTypeArg validates that a field value matches the resolved type argument.
+// typeArgMap maps type parameter names to concrete type names.
+func (i *Interpreter) validateFieldTypeArg(fieldName string, value Object, typeArgMap map[string]string) *Error {
+	// For now, we validate based on the value's runtime type matching the resolved type
+	// The field's declared type would need to be tracked on the struct definition
+	// This is a simplified version that just checks the value matches the expected type
+	return nil // Type checking is done at the call site; field-level checking deferred
+}
+
+// validateTypeMatch checks if an object matches a concrete type name.
+func validateTypeMatch(obj Object, typeName string) bool {
+	switch typeName {
+	case "int":
+		_, ok := obj.(*Integer)
+		return ok
+	case "float":
+		_, ok := obj.(*Float)
+		if ok {
+			return true
+		}
+		_, ok = obj.(*Integer)
+		return ok
+	case "string":
+		_, ok := obj.(*String)
+		return ok
+	case "boolean":
+		_, ok := obj.(*Boolean)
+		return ok
+	case "nil":
+		_, ok := obj.(*Nil)
+		return ok
+	case "array":
+		_, ok := obj.(*Array)
+		return ok
+	case "hash":
+		_, ok := obj.(*Hash)
+		return ok
+	case "function":
+		_, ok := obj.(*Function)
+		return ok
+	default:
+		// Could be a struct/class name
+		if si, ok := obj.(*StructInstance); ok {
+			return si.Struct.Name == typeName
+		}
+		if ci, ok := obj.(*ClassInstance); ok {
+			return ci.Class.Name == typeName
+		}
+		return false
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Postfix if/unless: expr if condition / expr unless condition
+// ---------------------------------------------------------------------------
+
+func (i *Interpreter) evalPostfixCondition(node *ast.PostfixCondition) Object {
+	condition := i.eval(node.Condition)
+	if isError(condition) {
+		return condition
+	}
+
+	shouldExecute := isTruthy(condition)
+	if node.Unless {
+		shouldExecute = !shouldExecute
+	}
+
+	if shouldExecute {
+		return i.eval(node.Statement)
+	}
+
+	// When condition is false, pre-declare any assignment variables as nil
+	// This matches Ruby behavior where `y = "yes" if false` leaves y as nil
+	if exprStmt, ok := node.Statement.(*ast.ExpressionStatement); ok {
+		if assign, ok := exprStmt.Expression.(*ast.AssignmentExpression); ok {
+			i.env.Set(assign.Name.Value, &Nil{})
+		}
+	}
+
+	return &Nil{}
+}
+
+// ---------------------------------------------------------------------------
+// Const declaration
+// ---------------------------------------------------------------------------
+
+func (i *Interpreter) evalConstStatement(node *ast.ConstStatement) Object {
+	val := i.eval(node.Value)
+	if isError(val) {
+		return val
+	}
+	i.env.SetConst(node.Name.Value, val)
+	return val
 }
 
 // ---------------------------------------------------------------------------

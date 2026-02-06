@@ -246,15 +246,22 @@ func (nl *NilLiteral) String() string       { return "nil" }
 //	    x + y
 //	end
 //
+//	def identity<T>(x: T): T
+//	    x
+//	end
+//
 // Functions in Vibe can be named or anonymous, can have
 // typed or untyped parameters, and can specify a return type.
+// They can also have type parameters for generics.
 type FunctionLiteral struct {
 	Token         lexer.Token     // The 'fn' or 'def' token
 	Name          *Identifier     // Optional function name (can be nil for anonymous functions)
+	TypeParams    []string        // Generic type parameters (e.g., ["T", "U"])
 	Parameters    []*Identifier   // Parameters (can be empty)
 	ParamTypes    []Expression    // Parameter type annotations (can be nil for untyped parameters)
 	ParamDefaults []Expression    // Default values for parameters (can be nil for required parameters)
 	ReturnType    Expression      // Return type annotation (can be nil)
+	Variadic      bool            // Whether the last parameter is variadic (*args)
 	Body          *BlockStatement // Function body
 }
 
@@ -262,7 +269,7 @@ func (fl *FunctionLiteral) expressionNode()      {}
 func (fl *FunctionLiteral) TokenLiteral() string { return fl.Token.Literal }
 
 // String returns a string representation of the function.
-// Format: "def [name](<params>) [: <return_type>]
+// Format: "def [name][<T, U>](<params>) [: <return_type>]
 //
 //	    <body>
 //	end"
@@ -277,6 +284,12 @@ func (fl *FunctionLiteral) String() string {
 
 	if fl.Name != nil {
 		out.WriteString(fl.Name.Value)
+	}
+
+	if len(fl.TypeParams) > 0 {
+		out.WriteString("<")
+		out.WriteString(strings.Join(fl.TypeParams, ", "))
+		out.WriteString(">")
 	}
 
 	params := []string{}
@@ -305,15 +318,24 @@ func (fl *FunctionLiteral) String() string {
 }
 
 // ClassLiteral represents a class definition.
-// Example in Vibe code: `class Person { prop name: String; func greet() { ... } }`
+// Example in Vibe code:
+//
+//	class Person { prop name: String; func greet() { ... } }
+//	class Box<T>
+//	  def initialize(value: T)
+//	    self.value = value
+//	  end
+//	end
 //
 // Classes in Vibe are similar to Ruby classes but include type annotations
 // for properties and methods, providing better type safety.
+// They can also have type parameters for generics.
 type ClassLiteral struct {
-	Token  lexer.Token     // the 'class' token
-	Name   *Identifier     // The class name
-	Parent *Identifier     // Optional parent class (for inheritance with <)
-	Body   *BlockStatement // Class body containing properties and methods
+	Token      lexer.Token     // the 'class' token
+	Name       *Identifier     // The class name
+	TypeParams []string        // Generic type parameters (e.g., ["T", "U"])
+	Parent     *Identifier     // Optional parent class (for inheritance with <)
+	Body       *BlockStatement // Class body containing properties and methods
 }
 
 func (cl *ClassLiteral) expressionNode()      {}
@@ -363,14 +385,16 @@ func (ps *PropertyStatement) String() string {
 }
 
 // CallExpression represents a function call.
-// Example in Vibe code: `add(1, 2)` or `person.greet()`
+// Example in Vibe code: `add(1, 2)` or `identity<int>(42)`
 //
 // Function calls consist of:
 // - The function being called (an expression that evaluates to a function)
+// - Optional type arguments for generic functions (e.g., <int, string>)
 // - The arguments passed to the function (a list of expressions)
 type CallExpression struct {
 	Token     lexer.Token  // The '(' token
 	Function  Expression   // Identifier or FunctionLiteral
+	TypeArgs  []string     // Explicit type arguments for generic calls (e.g., ["int", "string"])
 	Arguments []Expression // The arguments passed to the function
 }
 
@@ -556,10 +580,19 @@ func (al *ArrayLiteral) String() string {
 
 // StructStatement represents a struct definition in Vibe.
 // Structs are user-defined types that contain a collection of fields.
+// They can also have type parameters for generics.
+//
+// Example:
+//
+//	struct Pair<A, B>
+//	  first: A
+//	  second: B
+//	end
 type StructStatement struct {
-	Token  lexer.Token // The 'struct' token
-	Name   *Identifier // Name of the struct
-	Fields []Statement // Fields defined in the struct
+	Token      lexer.Token // The 'struct' token
+	Name       *Identifier // Name of the struct
+	TypeParams []string    // Generic type parameters (e.g., ["A", "B"])
+	Fields     []Statement // Fields defined in the struct
 }
 
 func (ss *StructStatement) statementNode()       {}
@@ -583,10 +616,12 @@ func (ss *StructStatement) String() string {
 
 // StructLiteral represents a struct instantiation expression.
 // It creates a new instance of a struct.
+// Example: Pair<int, string>(first: 1, second: "hello")
 type StructLiteral struct {
-	Token  lexer.Token           // The struct type name token
-	Type   string                // Name of the struct type
-	Fields map[string]Expression // Named field values
+	Token    lexer.Token           // The struct type name token
+	Type     string                // Name of the struct type
+	TypeArgs []string              // Explicit type arguments (e.g., ["int", "string"])
+	Fields   map[string]Expression // Named field values
 }
 
 func (sl *StructLiteral) expressionNode()      {}
@@ -706,10 +741,11 @@ func (sil *StringInterpolationLiteral) String() string {
 //	  puts(i)
 //	end
 type ForLoop struct {
-	Token      lexer.Token     // The 'for' token
-	Iterator   *Identifier     // The variable that holds each element during iteration
-	Collection Expression      // The collection to iterate over (array, range, etc.)
-	Body       *BlockStatement // The body of the loop
+	Token         lexer.Token     // The 'for' token
+	Iterator      *Identifier     // The variable that holds each element (or key for hashes)
+	ValueIterator *Identifier     // Optional second variable for hash value iteration (for k, v in hash)
+	Collection    Expression      // The collection to iterate over (array, range, hash, etc.)
+	Body          *BlockStatement // The body of the loop
 }
 
 func (fl *ForLoop) statementNode()       {}
@@ -1075,6 +1111,19 @@ func (pe *PipeExpression) String() string {
 	return "(" + pe.Left.String() + " |> " + pe.Right.String() + ")"
 }
 
+// NilCoalesceExpression represents: expr ?? default
+type NilCoalesceExpression struct {
+	Token lexer.Token
+	Left  Expression
+	Right Expression
+}
+
+func (nc *NilCoalesceExpression) expressionNode()      {}
+func (nc *NilCoalesceExpression) TokenLiteral() string { return nc.Token.Literal }
+func (nc *NilCoalesceExpression) String() string {
+	return "(" + nc.Left.String() + " ?? " + nc.Right.String() + ")"
+}
+
 // DestructureAssignment represents: a, b, c = [1, 2, 3]
 type DestructureAssignment struct {
 	Token lexer.Token
@@ -1146,4 +1195,47 @@ func (da *DotAssignment) expressionNode()      {}
 func (da *DotAssignment) TokenLiteral() string { return da.Token.Literal }
 func (da *DotAssignment) String() string {
 	return da.Left.String() + "." + da.Field + " = " + da.Value.String()
+}
+
+// PostfixCondition represents a postfix if/unless: expr if condition or expr unless condition
+type PostfixCondition struct {
+	Token     lexer.Token // the IF or UNLESS token
+	Statement Statement   // the statement to conditionally execute
+	Condition Expression  // the condition
+	Unless    bool        // true if this is an unless (inverted condition)
+}
+
+func (pc *PostfixCondition) statementNode()       {}
+func (pc *PostfixCondition) TokenLiteral() string { return pc.Token.Literal }
+func (pc *PostfixCondition) String() string {
+	keyword := "if"
+	if pc.Unless {
+		keyword = "unless"
+	}
+	return pc.Statement.String() + " " + keyword + " " + pc.Condition.String()
+}
+
+// ConstStatement represents a constant declaration: const X = value
+type ConstStatement struct {
+	Token          lexer.Token // the 'const' token
+	Name           *Identifier
+	TypeAnnotation Expression // Optional type annotation
+	Value          Expression
+}
+
+func (cs *ConstStatement) statementNode()       {}
+func (cs *ConstStatement) TokenLiteral() string { return cs.Token.Literal }
+func (cs *ConstStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("const ")
+	out.WriteString(cs.Name.String())
+	if cs.TypeAnnotation != nil {
+		out.WriteString(": ")
+		out.WriteString(cs.TypeAnnotation.String())
+	}
+	out.WriteString(" = ")
+	if cs.Value != nil {
+		out.WriteString(cs.Value.String())
+	}
+	return out.String()
 }

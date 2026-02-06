@@ -183,11 +183,6 @@ func TestIndexOnNonArray(t *testing.T) {
 			"5[0]",
 			"index operator not supported",
 		},
-		{
-			"index on string",
-			`"hello"[0]`,
-			"index operator not supported",
-		},
 	}
 
 	for _, tt := range tests {
@@ -209,7 +204,7 @@ func TestForLoopErrors(t *testing.T) {
 			i
 		end
 		`)
-		assertError(t, result, "must be an array or range")
+		assertError(t, result, "must be an array, range, or hash")
 	})
 }
 

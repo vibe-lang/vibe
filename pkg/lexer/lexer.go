@@ -160,7 +160,11 @@ func (l *Lexer) NextToken() Token {
 			tok = Token{Type: PIPE, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
 	case '*':
-		if l.peekChar() == '=' {
+		if l.peekChar() == '*' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: POWER_OP, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+		} else if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
 			tok = Token{Type: ASTERISK_ASSIGN, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
@@ -188,7 +192,13 @@ func (l *Lexer) NextToken() Token {
 			tok = Token{Type: MODULO, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
 	case '?':
-		tok = Token{Type: QUESTION, Literal: string(l.ch), Line: l.line, Column: l.column}
+		if l.peekChar() == '?' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: NIL_COALESCE, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+		} else {
+			tok = Token{Type: QUESTION, Literal: string(l.ch), Line: l.line, Column: l.column}
+		}
 	case '<':
 		if l.peekChar() == '=' {
 			ch := l.ch
@@ -246,6 +256,23 @@ func (l *Lexer) NextToken() Token {
 		l.skipComment()
 		return l.NextToken()
 	case '"':
+		// Check for triple-quoted multi-line string: """..."""
+		if l.peekChar() == '"' {
+			// Look ahead past the second quote to check for a third
+			_, peekSize := utf8.DecodeRuneInString(l.input[l.readPosition:])
+			thirdPos := l.readPosition + peekSize
+			if thirdPos < len(l.input) {
+				r3, _ := utf8.DecodeRuneInString(l.input[thirdPos:])
+				if r3 == '"' {
+					// This is a triple-quoted string
+					tok.Type = STRING
+					tok.Literal = l.readTripleQuotedString()
+					tok.Line = l.line
+					tok.Column = l.column
+					break
+				}
+			}
+		}
 		tok.Type = STRING
 		tok.Literal = l.readString()
 		tok.Line = l.line
@@ -402,6 +429,49 @@ func (l *Lexer) readString() string {
 			out.WriteRune('}')
 			l.readChar() // consume the closing brace
 			continue
+		}
+
+		out.WriteRune(l.ch)
+		l.readChar()
+	}
+
+	return out.String()
+}
+
+// readTripleQuotedString reads a triple-quoted multi-line string: """..."""
+// The opening """ has been partially detected (current char is first ").
+func (l *Lexer) readTripleQuotedString() string {
+	var out bytes.Buffer
+
+	// Skip the three opening quotes
+	l.readChar() // skip first "
+	l.readChar() // skip second "
+	l.readChar() // skip third ", now at first content char
+
+	for {
+		if l.ch == 0 {
+			break // EOF
+		}
+
+		// Check for closing """
+		if l.ch == '"' && l.peekChar() == '"' {
+			// Check the character after that
+			savedPos := l.readPosition
+			if savedPos < len(l.input) {
+				r2, _ := utf8.DecodeRuneInString(l.input[savedPos:])
+				if r2 == '"' {
+					// Found closing """
+					l.readChar() // skip first "
+					l.readChar() // skip second "
+					// Don't readChar for the third " - it will be consumed by NextToken
+					break
+				}
+			}
+		}
+
+		if l.ch == '\n' {
+			l.line++
+			l.column = 0
 		}
 
 		out.WriteRune(l.ch)

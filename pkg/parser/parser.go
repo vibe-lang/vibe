@@ -30,8 +30,10 @@ type Parser struct {
 	prefixParseFns map[lexer.TokenType]prefixParseFn // Functions for parsing prefix expressions
 	infixParseFns  map[lexer.TokenType]infixParseFn  // Functions for parsing infix expressions
 
-	// Temporary storage for parameter defaults during function parsing
-	currentDefaults []ast.Expression
+	// Temporary storage for parameter defaults and types during function parsing
+	currentDefaults   []ast.Expression
+	currentParamTypes []ast.Expression
+	currentVariadic   bool
 }
 
 // Function types for parsing expressions
@@ -50,43 +52,47 @@ type (
 const (
 	LOWEST    = 1  // Lowest precedence (evaluated last)
 	TERNARY   = 2  // condition ? a : b
-	LOGIC_OR  = 3  // ||
-	LOGIC_AND = 4  // &&
-	CONTAINS  = 5  // in
-	EQUALS    = 6  // ==, !=
-	COMPARE   = 7  // <, >, <=, >=
-	SUM       = 8  // +, -
-	PRODUCT   = 9  // *, /
-	PREFIX    = 10 // -X, !X
-	PIPE      = 11 // |>
-	CALL      = 12 // myFunction(X)
-	INDEX     = 13 // array[index]
-	DOT       = 14 // obj.property (highest precedence)
+	NIL_COAL  = 3  // ??
+	LOGIC_OR  = 4  // ||
+	LOGIC_AND = 5  // &&
+	CONTAINS  = 6  // in
+	EQUALS    = 7  // ==, !=
+	COMPARE   = 8  // <, >, <=, >=
+	SUM       = 9  // +, -
+	PRODUCT   = 10 // *, /
+	POWER     = 11 // **
+	PREFIX    = 12 // -X, !X
+	PIPE      = 13 // |>
+	CALL      = 14 // myFunction(X)
+	INDEX     = 15 // array[index]
+	DOT       = 16 // obj.property (highest precedence)
 )
 
 // precedences maps token types to their precedence levels.
 var precedences = map[lexer.TokenType]int{
-	lexer.AND:        LOGIC_AND,
-	lexer.OR:         LOGIC_OR,
-	lexer.EQ:         EQUALS,
-	lexer.NOT_EQ:     EQUALS,
-	lexer.LT:         COMPARE,
-	lexer.GT:         COMPARE,
-	lexer.LTE:        COMPARE,
-	lexer.GTE:        COMPARE,
-	lexer.PLUS:       SUM,
-	lexer.MINUS:      SUM,
-	lexer.SLASH:      PRODUCT,
-	lexer.ASTERISK:   PRODUCT,
-	lexer.MODULO:     PRODUCT,
-	lexer.LPAREN:     CALL,
-	lexer.DOT:        DOT,
-	lexer.LBRACKET:   INDEX,
-	lexer.DOTDOT:     EQUALS, // Range operator precedence (below comparison but above LOWEST)
-	lexer.DOTDOTDOT:  EQUALS, // Range operator precedence
-	lexer.QUESTION:   TERNARY,
-	lexer.PIPE_ARROW: PIPE,
-	lexer.IN:         CONTAINS,
+	lexer.AND:          LOGIC_AND,
+	lexer.OR:           LOGIC_OR,
+	lexer.EQ:           EQUALS,
+	lexer.NOT_EQ:       EQUALS,
+	lexer.LT:           COMPARE,
+	lexer.GT:           COMPARE,
+	lexer.LTE:          COMPARE,
+	lexer.GTE:          COMPARE,
+	lexer.PLUS:         SUM,
+	lexer.MINUS:        SUM,
+	lexer.SLASH:        PRODUCT,
+	lexer.ASTERISK:     PRODUCT,
+	lexer.MODULO:       PRODUCT,
+	lexer.LPAREN:       CALL,
+	lexer.DOT:          DOT,
+	lexer.LBRACKET:     INDEX,
+	lexer.DOTDOT:       EQUALS, // Range operator precedence (below comparison but above LOWEST)
+	lexer.DOTDOTDOT:    EQUALS, // Range operator precedence
+	lexer.QUESTION:     TERNARY,
+	lexer.PIPE_ARROW:   PIPE,
+	lexer.IN:           CONTAINS,
+	lexer.NIL_COALESCE: NIL_COAL,
+	lexer.POWER_OP:     POWER,
 }
 
 // New creates a new parser for the given lexer.
@@ -139,6 +145,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.CASE, p.parseCaseExpression)
 	p.registerPrefix(lexer.ARROW, p.parseArrowFunction)
 	p.registerPrefix(lexer.SELF, p.parseSelfExpression)
+	p.registerPrefix(lexer.SUPER, p.parseSuperExpression)
 
 	// Register infix parse functions
 	p.infixParseFns = make(map[lexer.TokenType]infixParseFn)
@@ -163,7 +170,9 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerInfix(lexer.ASSIGN, p.parseAssignmentExpression)
 	p.registerInfix(lexer.QUESTION, p.parseTernaryExpression)
 	p.registerInfix(lexer.PIPE_ARROW, p.parsePipeExpression)
+	p.registerInfix(lexer.NIL_COALESCE, p.parseNilCoalesceExpression)
 	p.registerInfix(lexer.IN, p.parseInExpression)
+	p.registerInfix(lexer.POWER_OP, p.parseInfixExpression)
 
 	return p
 }
@@ -242,6 +251,8 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseUntilStatement()
 	case lexer.ENUM:
 		return p.parseEnumStatement()
+	case lexer.CONST:
+		return p.parseConstStatement()
 	default:
 		return p.parseExpressionStatement()
 	}
@@ -254,7 +265,7 @@ func (p *Parser) parseStatement() ast.Statement {
 //
 //	return 42;
 //	return x + y;
-func (p *Parser) parseReturnStatement() *ast.ReturnStatement {
+func (p *Parser) parseReturnStatement() ast.Statement {
 	stmt := &ast.ReturnStatement{Token: p.curToken}
 
 	p.nextToken()
@@ -264,6 +275,26 @@ func (p *Parser) parseReturnStatement() *ast.ReturnStatement {
 	}
 
 	stmt.Value = p.parseExpression(LOWEST)
+
+	// Check for postfix if/unless on return (must be on the same line)
+	if (p.peekTokenIs(lexer.IF) || p.peekTokenIs(lexer.UNLESS)) && p.peekToken.Line == p.curToken.Line {
+		p.nextToken() // consume if/unless
+		isUnless := p.curTokenIs(lexer.UNLESS)
+		condToken := p.curToken
+		p.nextToken() // move to condition
+		condition := p.parseExpression(LOWEST)
+
+		if p.peekTokenIs(lexer.SEMICOLON) {
+			p.nextToken()
+		}
+
+		return &ast.PostfixCondition{
+			Token:     condToken,
+			Statement: stmt,
+			Condition: condition,
+			Unless:    isUnless,
+		}
+	}
 
 	if p.peekTokenIs(lexer.SEMICOLON) {
 		p.nextToken()
@@ -275,7 +306,7 @@ func (p *Parser) parseReturnStatement() *ast.ReturnStatement {
 // parseLetStatement parses a let statement.
 // Format: let <name> = <expression>
 // or:    let <name>: <type> = <expression>
-func (p *Parser) parseLetStatement() *ast.ExpressionStatement {
+func (p *Parser) parseLetStatement() ast.Statement {
 	// Skip the 'let' keyword - treat as a variable assignment
 	p.nextToken()
 
@@ -290,7 +321,7 @@ func (p *Parser) parseLetStatement() *ast.ExpressionStatement {
 //
 //	x + 5;
 //	foo();
-func (p *Parser) parseExpressionStatement() *ast.ExpressionStatement {
+func (p *Parser) parseExpressionStatement() ast.Statement {
 	stmt := &ast.ExpressionStatement{Token: p.curToken}
 
 	// Special case for typed array assignments like "h: int[] = [1, 2, 3]"
@@ -364,6 +395,28 @@ func (p *Parser) parseExpressionStatement() *ast.ExpressionStatement {
 	} else {
 		// Regular expression statement
 		stmt.Expression = p.parseExpression(LOWEST)
+	}
+
+	// Check for postfix if/unless (must be on the same line as the expression)
+	if (p.peekTokenIs(lexer.IF) || p.peekTokenIs(lexer.UNLESS)) && p.peekToken.Line == p.curToken.Line {
+		p.nextToken() // consume the if/unless token
+		isUnless := p.curTokenIs(lexer.UNLESS)
+		condToken := p.curToken
+		p.nextToken() // move to condition
+		condition := p.parseExpression(LOWEST)
+
+		wrapped := &ast.PostfixCondition{
+			Token:     condToken,
+			Statement: stmt,
+			Condition: condition,
+			Unless:    isUnless,
+		}
+
+		if p.peekTokenIs(lexer.SEMICOLON) {
+			p.nextToken()
+		}
+
+		return wrapped
 	}
 
 	// Optional semicolon
@@ -469,23 +522,85 @@ func (p *Parser) parseIdentifier() ast.Expression {
 	}
 
 	// Check if this is a struct instantiation: StructName(field: value, ...)
+	// or a generic struct: StructName<T, U>(field: value, ...)
 	// Struct constructors have the pattern: IDENT ( IDENT : ...
 	// Function calls have: IDENT ( expr, ... )
 	// We distinguish by checking if the first token after ( is IDENT followed by :
-	if p.peekTokenIs(lexer.LPAREN) && p.peekPeekTokenIs(lexer.IDENT) {
-		// Check for empty parens (struct with no overrides) — but could also be function with IDENT arg
-		// We need the 3-token lookahead: peek=( , peekPeek=IDENT
-		// We have to check if the token after the IDENT is a COLON
-		// For now, check if the identifier starts with uppercase (convention for struct names)
-		firstChar := p.curToken.Literal[0]
-		if firstChar >= 'A' && firstChar <= 'Z' {
+	// For now, check if the identifier starts with uppercase (convention for struct names)
+	firstChar := p.curToken.Literal[0]
+	if firstChar >= 'A' && firstChar <= 'Z' {
+		// Check for generic struct/class: Name<type, type>(...)
+		// We can use a non-rolling-back approach: peek=<, peekPeek=IDENT
+		// Since this is uppercase, < is unambiguous (not inheritance context)
+		if p.peekTokenIs(lexer.LT) && p.peekPeekTokenIs(lexer.IDENT) {
+			// Save the struct/class name before consuming type args
+			savedNameToken := p.curToken
+			savedName := p.curToken.Literal
+
+			// Speculatively consume < and IDENT to check what follows
+			p.nextToken() // consume <
+			p.nextToken() // consume first type arg IDENT
+			firstName := p.curToken.Literal
+
+			if p.peekTokenIs(lexer.GT) || p.peekTokenIs(lexer.COMMA) {
+				// This is a generic instantiation: Name<type>(...)
+				typeArgs := []string{firstName}
+				for p.peekTokenIs(lexer.COMMA) {
+					p.nextToken() // consume comma
+					if !p.expectPeek(lexer.IDENT) {
+						return nil
+					}
+					typeArgs = append(typeArgs, p.curToken.Literal)
+				}
+				if !p.expectPeek(lexer.GT) {
+					return nil
+				}
+				// Create the struct literal using the saved name
+				structLiteral := &ast.StructLiteral{
+					Token:    savedNameToken,
+					Type:     savedName,
+					TypeArgs: typeArgs,
+					Fields:   make(map[string]ast.Expression),
+				}
+				// Parse optional parenthesized fields
+				if p.peekTokenIs(lexer.LPAREN) {
+					p.nextToken() // consume (
+					if p.peekTokenIs(lexer.RPAREN) {
+						p.nextToken() // consume )
+						return structLiteral
+					}
+					for {
+						if !p.expectPeek(lexer.IDENT) {
+							return nil
+						}
+						fieldName := p.curToken.Literal
+						if !p.expectPeek(lexer.COLON) {
+							return nil
+						}
+						p.nextToken()
+						fieldValue := p.parseExpression(LOWEST)
+						structLiteral.Fields[fieldName] = fieldValue
+						if p.peekTokenIs(lexer.RPAREN) {
+							p.nextToken() // consume )
+							break
+						}
+						if !p.expectPeek(lexer.COMMA) {
+							return nil
+						}
+					}
+				}
+				return structLiteral
+			}
+			// Not type args — but we've consumed tokens. This is a parsing error
+			// in the context of uppercase identifiers followed by < then IDENT.
+			p.addError(fmt.Sprintf("unexpected token after '%s<': expected '>' or ','", savedName))
+			return nil
+		}
+		if p.peekTokenIs(lexer.LPAREN) && p.peekPeekTokenIs(lexer.IDENT) {
 			return p.parseStructLiteral()
 		}
-	}
-	// Also handle empty-parens struct construction like Person()
-	if p.peekTokenIs(lexer.LPAREN) && p.peekPeekTokenIs(lexer.RPAREN) {
-		firstChar := p.curToken.Literal[0]
-		if firstChar >= 'A' && firstChar <= 'Z' {
+		// Also handle empty-parens struct construction like Person()
+		if p.peekTokenIs(lexer.LPAREN) && p.peekPeekTokenIs(lexer.RPAREN) {
 			return p.parseStructLiteral()
 		}
 	}
@@ -893,12 +1008,16 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 
 // parseFunctionLiteral parses a function literal or definition.
 // Supports both anonymous functions (fn) and named functions (def).
+// Supports generic type parameters with <T, U> syntax.
 //
 // Example Vibe code:
 //
 //	fn(x, y) { x + y }
 //	def greet(name: string): string
 //	  "Hello, ${name}!"
+//	end
+//	def identity<T>(x: T): T
+//	  x
 //	end
 func (p *Parser) parseFunctionLiteral() ast.Expression {
 	lit := &ast.FunctionLiteral{Token: p.curToken}
@@ -912,6 +1031,14 @@ func (p *Parser) parseFunctionLiteral() ast.Expression {
 		}
 
 		lit.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+		// Check for generic type parameters: def name<T, U>(...)
+		if p.peekTokenIs(lexer.LT) {
+			typeParams := p.tryParseTypeParams()
+			if typeParams != nil {
+				lit.TypeParams = typeParams
+			}
+		}
 	}
 
 	// Parse parameters
@@ -920,9 +1047,15 @@ func (p *Parser) parseFunctionLiteral() ast.Expression {
 	}
 
 	p.currentDefaults = []ast.Expression{}
+	p.currentParamTypes = []ast.Expression{}
+	p.currentVariadic = false
 	lit.Parameters = p.parseFunctionParameters()
 	lit.ParamDefaults = p.currentDefaults
+	lit.ParamTypes = p.currentParamTypes
+	lit.Variadic = p.currentVariadic
 	p.currentDefaults = nil
+	p.currentParamTypes = nil
+	p.currentVariadic = false
 
 	// Check for return type annotation
 	if p.peekTokenIs(lexer.COLON) {
@@ -1071,13 +1204,50 @@ func (p *Parser) parseClassLiteral() ast.Expression {
 
 	lit.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 
-	// Check for inheritance: class Dog < Animal
+	// Check for generic type parameters or inheritance with <
+	// Disambiguation: class Box<T> (generics) vs class Dog < Animal (inheritance)
+	// Key insight: generics use NO space before < (Box<T>), inheritance uses space (Dog < Animal)
+	// But we can't rely on whitespace. Instead, use structural disambiguation:
+	// After <IDENT>, if next is , or >, it's type params. Otherwise it's inheritance.
 	if p.peekTokenIs(lexer.LT) {
-		p.nextToken() // consume <
-		if !p.expectPeek(lexer.IDENT) {
-			return nil
+		// Look at peekPeek: if it's IDENT, we need further disambiguation
+		if p.peekPeekTokenIs(lexer.IDENT) {
+			// Consume < and the IDENT to check what follows
+			p.nextToken() // consume < (now curToken)
+			p.nextToken() // consume IDENT (now curToken = the name after <)
+			identName := p.curToken.Literal
+
+			if p.peekTokenIs(lexer.GT) || p.peekTokenIs(lexer.COMMA) {
+				// This is type params: <T> or <T, U>
+				typeParams := []string{identName}
+				for p.peekTokenIs(lexer.COMMA) {
+					p.nextToken() // consume comma
+					if !p.expectPeek(lexer.IDENT) {
+						return nil
+					}
+					typeParams = append(typeParams, p.curToken.Literal)
+				}
+				if !p.expectPeek(lexer.GT) {
+					return nil
+				}
+				lit.TypeParams = typeParams
+
+				// After type params, there could still be inheritance: class Box<T> < Parent
+				if p.peekTokenIs(lexer.LT) {
+					p.nextToken() // consume <
+					if !p.expectPeek(lexer.IDENT) {
+						return nil
+					}
+					lit.Parent = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+				}
+			} else {
+				// This is inheritance: class Dog < Animal (identName = Animal)
+				lit.Parent = &ast.Identifier{Token: p.curToken, Value: identName}
+			}
+		} else {
+			// After < there's no IDENT — treat as less-than (shouldn't happen in class context)
+			// Just skip and let the body parser handle it
 		}
-		lit.Parent = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	}
 
 	// Parse the class body until 'end'
@@ -1450,6 +1620,14 @@ func (p *Parser) parseStructStatement() *ast.StructStatement {
 
 	stmt.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 
+	// Check for generic type parameters: struct Pair<A, B>
+	if p.peekTokenIs(lexer.LT) {
+		typeParams := p.tryParseTypeParams()
+		if typeParams != nil {
+			stmt.TypeParams = typeParams
+		}
+	}
+
 	// Parse fields until we reach 'end'
 	stmt.Fields = []ast.Statement{}
 
@@ -1566,6 +1744,12 @@ func (p *Parser) parseFunctionParameters() []*ast.Identifier {
 
 	p.nextToken()
 
+	// Check for variadic parameter: *args
+	if p.curTokenIs(lexer.ASTERISK) {
+		p.nextToken() // move past *
+		p.currentVariadic = true
+	}
+
 	// First parameter
 	ident := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	identifiers = append(identifiers, ident)
@@ -1576,7 +1760,13 @@ func (p *Parser) parseFunctionParameters() []*ast.Identifier {
 		if !p.expectPeek(lexer.IDENT) {
 			return nil
 		}
-		// Skip past the type name for now
+		// Store the type annotation
+		p.currentParamTypes = append(p.currentParamTypes, &ast.TypeAnnotation{
+			Token: p.curToken,
+			Name:  p.curToken.Literal,
+		})
+	} else {
+		p.currentParamTypes = append(p.currentParamTypes, nil)
 	}
 
 	// Check for default value
@@ -1594,6 +1784,12 @@ func (p *Parser) parseFunctionParameters() []*ast.Identifier {
 		p.nextToken() // consume the comma
 		p.nextToken() // move to the parameter name
 
+		// Check for variadic parameter: *args
+		if p.curTokenIs(lexer.ASTERISK) {
+			p.nextToken() // move past *
+			p.currentVariadic = true
+		}
+
 		ident := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 		identifiers = append(identifiers, ident)
 
@@ -1603,7 +1799,13 @@ func (p *Parser) parseFunctionParameters() []*ast.Identifier {
 			if !p.expectPeek(lexer.IDENT) {
 				return nil
 			}
-			// Skip past the type name
+			// Store the type annotation
+			p.currentParamTypes = append(p.currentParamTypes, &ast.TypeAnnotation{
+				Token: p.curToken,
+				Name:  p.curToken.Literal,
+			})
+		} else {
+			p.currentParamTypes = append(p.currentParamTypes, nil)
 		}
 
 		// Check for default value
@@ -1659,6 +1861,15 @@ func (p *Parser) parseForStatement() *ast.ForLoop {
 	}
 
 	forLoop.Iterator = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+	// Check for second iterator: for k, v in hash
+	if p.peekTokenIs(lexer.COMMA) {
+		p.nextToken() // consume comma
+		if !p.expectPeek(lexer.IDENT) {
+			return nil
+		}
+		forLoop.ValueIterator = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+	}
 
 	// Expect 'in' keyword
 	if !p.expectPeek(lexer.IN) {
@@ -1965,6 +2176,14 @@ func (p *Parser) parseSelfExpression() ast.Expression {
 	return &ast.Identifier{Token: p.curToken, Value: "self"}
 }
 
+// parseSuperExpression parses the 'super' keyword as an identifier.
+// super can be used as:
+//   - super.method(args) — call a specific parent method
+//   - super(args)        — call the parent's version of the current method
+func (p *Parser) parseSuperExpression() ast.Expression {
+	return &ast.Identifier{Token: p.curToken, Value: "super"}
+}
+
 // tryParseDestructure tries to parse a destructuring assignment: a, b = expr
 // It checks if the current pattern is IDENT (COMMA IDENT)+ ASSIGN.
 // Returns nil if not a destructure pattern. Since the parser doesn't support
@@ -2019,6 +2238,37 @@ func (p *Parser) tryParseDestructure() ast.Expression {
 		Names: names,
 		Value: value,
 	}
+}
+
+// parseConstStatement parses: const NAME = value or const NAME: type = value
+func (p *Parser) parseConstStatement() *ast.ConstStatement {
+	stmt := &ast.ConstStatement{Token: p.curToken}
+
+	if !p.expectPeek(lexer.IDENT) {
+		return nil
+	}
+
+	stmt.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+
+	// Check for optional type annotation
+	if p.peekTokenIs(lexer.COLON) {
+		p.nextToken() // consume colon
+		p.nextToken() // move to type
+		stmt.TypeAnnotation = p.parseTypeAnnotation()
+	}
+
+	if !p.expectPeek(lexer.ASSIGN) {
+		return nil
+	}
+
+	p.nextToken() // move past =
+	stmt.Value = p.parseExpression(LOWEST)
+
+	if p.peekTokenIs(lexer.SEMICOLON) {
+		p.nextToken()
+	}
+
+	return stmt
 }
 
 // parseUnlessExpression parses: unless condition ... end or unless condition ... else ... end
@@ -2178,8 +2428,10 @@ func (p *Parser) parseArrowFunction() ast.Expression {
 	if p.peekTokenIs(lexer.LPAREN) {
 		p.nextToken() // consume ->
 		p.currentDefaults = []ast.Expression{}
+		p.currentParamTypes = []ast.Expression{}
 		af.Parameters = p.parseFunctionParameters()
 		p.currentDefaults = nil
+		p.currentParamTypes = nil
 	} else {
 		af.Parameters = []*ast.Identifier{}
 	}
@@ -2217,6 +2469,67 @@ func (p *Parser) parseInExpression(left ast.Expression) ast.Expression {
 	expr.Right = p.parseExpression(CONTAINS)
 
 	return expr
+}
+
+// parseNilCoalesceExpression parses: expr ?? default
+func (p *Parser) parseNilCoalesceExpression(left ast.Expression) ast.Expression {
+	expr := &ast.NilCoalesceExpression{
+		Token: p.curToken,
+		Left:  left,
+	}
+
+	p.nextToken()
+	expr.Right = p.parseExpression(NIL_COAL - 1) // right-associative
+
+	return expr
+}
+
+// tryParseTypeParams attempts to parse generic type parameters: <T, U, V>
+// Uses two-token lookahead to disambiguate without needing rollback.
+// Peek must be LT, peekPeek must be IDENT for this to trigger.
+// After parsing <IDENT, it checks if the next is , or > to confirm it's type params.
+// Returns the list of type parameter names, or nil if not a type param list.
+//
+// IMPORTANT: This method is only safe to call when <T> is unambiguously type params
+// (i.e., after function names or struct names, NOT after class names where < could mean inheritance).
+// For class names, use inline disambiguation in parseClassLiteral.
+func (p *Parser) tryParseTypeParams() []string {
+	// We expect peek to be LT and peekPeek to be IDENT
+	if !p.peekTokenIs(lexer.LT) || !p.peekPeekTokenIs(lexer.IDENT) {
+		return nil
+	}
+
+	p.nextToken() // consume <
+	p.nextToken() // move to first type param IDENT
+
+	firstIdent := p.curToken.Literal
+
+	// Check what follows the first IDENT
+	if !p.peekTokenIs(lexer.GT) && !p.peekTokenIs(lexer.COMMA) {
+		// Not type params — but we've consumed tokens!
+		// This should only be called in contexts where <IDENT> is unambiguous
+		// (functions and structs). If we get here, it's an error.
+		p.addError(fmt.Sprintf("expected '>' or ',' in type parameters, got %s", p.peekToken.Type))
+		return nil
+	}
+
+	typeParams := []string{firstIdent}
+
+	// Parse additional type params: , IDENT
+	for p.peekTokenIs(lexer.COMMA) {
+		p.nextToken() // consume comma
+		if !p.expectPeek(lexer.IDENT) {
+			return nil
+		}
+		typeParams = append(typeParams, p.curToken.Literal)
+	}
+
+	// Must end with >
+	if !p.expectPeek(lexer.GT) {
+		return nil
+	}
+
+	return typeParams
 }
 
 // isCompoundAssign checks if a token type is a compound assignment operator.

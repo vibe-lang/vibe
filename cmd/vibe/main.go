@@ -22,7 +22,10 @@ import (
 //   - Start the Vibe REPL: vibe repl
 //
 // Version is set at build time via -ldflags
+// x-release-please-start-version
 var Version = "0.2.0"
+
+// x-release-please-end
 
 func main() {
 	var rootCmd = &cobra.Command{
