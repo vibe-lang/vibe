@@ -6,7 +6,8 @@ before:
     - go test ./pkg/... ./cmd/...
 
 builds:
-  - main: ./cmd/vibe
+  - id: vibe
+    main: ./cmd/vibe
     binary: vibe
     env:
       - CGO_ENABLED=0
@@ -19,6 +20,21 @@ builds:
       - arm64
     ldflags:
       - -s -w -X main.Version={{.Version}}
+
+  - id: vibe-lsp
+    main: ./cmd/vibe-lsp
+    binary: vibe-lsp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
 
 archives:
   - format: tar.gz

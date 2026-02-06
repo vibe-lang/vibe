@@ -348,12 +348,19 @@ Please check that version v${VERSION} exists at:
         die "binary '${BINARY_NAME}' not found in archive. The release may be corrupted."
     fi
 
-    # Install binary
+    # Install binaries
     mkdir -p "$BIN_DIR"
     cp "$binary_path" "${BIN_DIR}/${BINARY_NAME}"
     chmod +x "${BIN_DIR}/${BINARY_NAME}"
 
     success "Installed to ${BIN_DIR}/${BINARY_NAME}"
+
+    # Also install vibe-lsp if present in the archive
+    if [ -f "${TMP_DIR}/vibe-lsp" ]; then
+        cp "${TMP_DIR}/vibe-lsp" "${BIN_DIR}/vibe-lsp"
+        chmod +x "${BIN_DIR}/vibe-lsp"
+        success "Installed to ${BIN_DIR}/vibe-lsp"
+    fi
 
     # Set up PATH
     NEEDS_SHELL_RELOAD="no"
