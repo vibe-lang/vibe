@@ -4,6 +4,13 @@ All notable changes to the Vibe language will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.2](https://github.com/vibe-lang/vibe/compare/v0.2.1...v0.2.2) (2026-02-06)
+
+
+### Bug Fixes
+
+* show copy-pasteable PATH export command after install ([b7c60cc](https://github.com/vibe-lang/vibe/commit/b7c60cc91beba1af3bb9c5a34e43b2f30f9e998a))
+
 ## [0.2.1](https://github.com/vibe-lang/vibe/compare/v0.2.0...v0.2.1) (2026-02-06)
 
 

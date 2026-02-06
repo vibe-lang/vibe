@@ -23,7 +23,7 @@ import (
 //
 // Version is set at build time via -ldflags
 // x-release-please-start-version
-var Version = "0.2.1"
+var Version = "0.2.2"
 
 // x-release-please-end
 
