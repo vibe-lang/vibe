@@ -188,7 +188,7 @@ func (e *Environment) Get(name string) (Object, bool) {
 }
 
 // Set sets a value in the environment by name.
-// This creates or updates a variable binding in the current environment.
+// This creates or updates a variable binding in the current environment only.
 // Returns the value that was set, or an error if the name is a constant.
 func (e *Environment) Set(name string, val Object) Object {
 	if e.IsConst(name) {
@@ -198,6 +198,29 @@ func (e *Environment) Set(name string, val Object) Object {
 	e.store[name] = val
 	e.mu.Unlock()
 	return val
+}
+
+// Update walks the scope chain to find an existing variable and updates it
+// in the scope where it was originally defined. Returns (value, true) if
+// found and updated, or (nil, false) if the variable doesn't exist in any scope.
+// This enables closures to mutate variables in their enclosing scopes.
+func (e *Environment) Update(name string, val Object) (Object, bool) {
+	if e.IsConst(name) {
+		return newError("cannot reassign constant '%s'", name), true
+	}
+	e.mu.RLock()
+	_, exists := e.store[name]
+	e.mu.RUnlock()
+	if exists {
+		e.mu.Lock()
+		e.store[name] = val
+		e.mu.Unlock()
+		return val, true
+	}
+	if e.outer != nil {
+		return e.outer.Update(name, val)
+	}
+	return nil, false
 }
 
 // SetConst sets a constant value in the environment.
@@ -250,6 +273,16 @@ func New() *Interpreter {
 	registerBuiltins(i.env)
 
 	return i
+}
+
+// SetArgs sets the ARGV and SCRIPT_NAME globals for command-line argument access.
+func (i *Interpreter) SetArgs(scriptName string, args []string) {
+	elements := make([]Object, len(args))
+	for idx, a := range args {
+		elements[idx] = &String{Value: a}
+	}
+	i.env.Set("ARGV", &Array{Elements: elements})
+	i.env.Set("SCRIPT_NAME", &String{Value: scriptName})
 }
 
 // applyFunction applies a function to the given arguments.
@@ -584,7 +617,19 @@ func (i *Interpreter) eval(node ast.Node) Object {
 					return i.applyFunction(field, args)
 				}
 			}
-			// Not a struct or field not found — treat as method call
+
+			// If left is a hash, check if the value at the key is a callable function
+			if hash, ok := left.(*Hash); ok {
+				if val, exists := hash.Pairs[methodName]; exists {
+					args := i.evalExpressions(node.Arguments)
+					if len(args) == 1 && isError(args[0]) {
+						return args[0]
+					}
+					return i.applyFunction(val, args)
+				}
+			}
+
+			// Not a struct/hash or field not found — treat as method call
 			fn, ok := i.env.Get(methodName)
 			if !ok {
 				return newError("undefined method: %s", methodName)
@@ -861,6 +906,15 @@ func (i *Interpreter) evalAssignmentExpression(node *ast.AssignmentExpression) O
 		}
 	}
 
+	// If the variable already exists in any enclosing scope, update it there.
+	// This enables closures to mutate variables in their enclosing scopes.
+	// If it doesn't exist anywhere, create it in the current scope.
+	if result, ok := i.env.Update(node.Name.Value, val); ok {
+		if isError(result) {
+			return result
+		}
+		return val
+	}
 	result := i.env.Set(node.Name.Value, val)
 	if isError(result) {
 		return result
@@ -1616,6 +1670,39 @@ func (i *Interpreter) evalDotExpression(node *ast.DotExpression) Object {
 		}
 
 		// Field not found on struct — fall through to try as method call
+	}
+
+	// Check if the left side is a VibeError — support .message, .data, .type
+	if vibeErr, ok := left.(*VibeError); ok {
+		switch fieldName {
+		case "message":
+			return &String{Value: vibeErr.Message}
+		case "data":
+			return vibeErr.Data
+		case "type":
+			return &String{Value: "Error"}
+		}
+	}
+
+	// Check if the left side is a TimeObject — support .year, .month, etc.
+	if timeObj, ok := left.(*TimeObject); ok {
+		switch fieldName {
+		case "year":
+			return &Integer{Value: int64(timeObj.Value.Year())}
+		case "month":
+			return &Integer{Value: int64(timeObj.Value.Month())}
+		case "day":
+			return &Integer{Value: int64(timeObj.Value.Day())}
+		case "hour":
+			return &Integer{Value: int64(timeObj.Value.Hour())}
+		case "minute":
+			return &Integer{Value: int64(timeObj.Value.Minute())}
+		case "second":
+			return &Integer{Value: int64(timeObj.Value.Second())}
+		case "unix":
+			return &Integer{Value: timeObj.Value.Unix()}
+		}
+		// Fall through to method lookup (e.g., format_time)
 	}
 
 	// Check if the left side is a hash — support dot access for keys

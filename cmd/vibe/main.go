@@ -37,11 +37,11 @@ It aims to provide a pleasant and ergonomic developer experience while maintaini
 	}
 
 	var runCmd = &cobra.Command{
-		Use:   "run [file]",
+		Use:   "run [file] [args...]",
 		Short: "Run a Vibe script",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			runFile(args[0])
+			runFile(args[0], args[1:])
 		},
 	}
 
@@ -77,7 +77,7 @@ It aims to provide a pleasant and ergonomic developer experience while maintaini
 //
 // Parameters:
 //   - filename: The path to the Vibe script file to execute
-func runFile(filename string) {
+func runFile(filename string, scriptArgs ...[]string) {
 	// Read the file
 	input, err := os.ReadFile(filename)
 	if err != nil {
@@ -100,6 +100,14 @@ func runFile(filename string) {
 
 	// Create an interpreter and evaluate the program
 	i := interpreter.New()
+
+	// Set CLI arguments if provided
+	var args []string
+	if len(scriptArgs) > 0 {
+		args = scriptArgs[0]
+	}
+	i.SetArgs(filename, args)
+
 	result := i.Eval(program)
 
 	// Check for runtime errors

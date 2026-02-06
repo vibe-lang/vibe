@@ -22,6 +22,8 @@ func init() {
 		"math":       loadMath,
 		"regex":      loadRegex,
 		"concurrent": loadConcurrent,
+		"os":         loadOS,
+		"time":       loadTime,
 	}
 }
 
@@ -468,6 +470,103 @@ func loadRegex(env *Environment) {
 		}
 
 		return &String{Value: re.ReplaceAllString(input.Value, replacement.Value)}
+	}})
+
+	// match_groups(pattern, input) — returns array of capture groups (index 0 = full match)
+	env.Set("match_groups", &Builtin{Fn: func(args ...Object) Object {
+		if len(args) != 2 {
+			return newError("match_groups: expected 2 arguments (pattern, string), got %d", len(args))
+		}
+
+		var re *regexp.Regexp
+		switch p := args[0].(type) {
+		case *RegexObject:
+			re = p.Re
+		case *String:
+			var err error
+			re, err = regexp.Compile(p.Value)
+			if err != nil {
+				return newError("match_groups: invalid pattern: %s", err.Error())
+			}
+		default:
+			return newError("match_groups: first argument must be a Regex or string, got %s", args[0].Type())
+		}
+
+		input, ok := args[1].(*String)
+		if !ok {
+			return newError("match_groups: second argument must be a string, got %s", args[1].Type())
+		}
+
+		groups := re.FindStringSubmatch(input.Value)
+		if groups == nil {
+			return &Nil{}
+		}
+		elements := make([]Object, len(groups))
+		for i, g := range groups {
+			elements[i] = &String{Value: g}
+		}
+		return &Array{Elements: elements}
+	}})
+
+	// test(pattern, input) — returns true if pattern matches anywhere in input
+	env.Set("test", &Builtin{Fn: func(args ...Object) Object {
+		if len(args) != 2 {
+			return newError("test: expected 2 arguments (pattern, string), got %d", len(args))
+		}
+
+		var re *regexp.Regexp
+		switch p := args[0].(type) {
+		case *RegexObject:
+			re = p.Re
+		case *String:
+			var err error
+			re, err = regexp.Compile(p.Value)
+			if err != nil {
+				return newError("test: invalid pattern: %s", err.Error())
+			}
+		default:
+			return newError("test: first argument must be a Regex or string, got %s", args[0].Type())
+		}
+
+		input, ok := args[1].(*String)
+		if !ok {
+			return newError("test: second argument must be a string, got %s", args[1].Type())
+		}
+
+		return &Boolean{Value: re.MatchString(input.Value)}
+	}})
+
+	// split_regex(pattern, input) — split string by regex pattern
+	env.Set("split_regex", &Builtin{Fn: func(args ...Object) Object {
+		if len(args) != 2 {
+			return newError("split_regex: expected 2 arguments (pattern, string), got %d", len(args))
+		}
+
+		var re *regexp.Regexp
+		switch p := args[0].(type) {
+		case *RegexObject:
+			re = p.Re
+		case *String:
+			var err error
+			re, err = regexp.Compile(p.Value)
+			if err != nil {
+				return newError("split_regex: invalid pattern: %s", err.Error())
+			}
+		default:
+			return newError("split_regex: first argument must be a Regex or string, got %s", args[0].Type())
+		}
+
+		input, ok := args[1].(*String)
+		if !ok {
+			return newError("split_regex: second argument must be a string, got %s", args[1].Type())
+		}
+
+		parts := re.Split(input.Value, -1)
+		elements := make([]Object, len(parts))
+		for i, p := range parts {
+			elements[i] = &String{Value: p}
+		}
+		return &Array{Elements: elements}
 	}})
 }
 

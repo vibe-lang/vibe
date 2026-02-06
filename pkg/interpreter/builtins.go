@@ -99,6 +99,12 @@ func registerBuiltins(env *Environment) {
 	// Mutation builtins
 	env.Set("delete", &Builtin{Fn: builtinDelete})
 	env.Set("remove_at", &Builtin{Fn: builtinRemoveAt})
+
+	// String formatting
+	env.Set("format", &Builtin{Fn: builtinFormat})
+
+	// Typed errors
+	env.Set("Error", &Builtin{Fn: builtinError})
 }
 
 // builtinInterpreter is stored so map/filter/each can call user functions.
@@ -1726,4 +1732,73 @@ func objectToGoValue(obj Object) interface{} {
 	default:
 		return o.Inspect()
 	}
+}
+
+// ---------------------------------------------------------------------------
+// String Formatting
+// ---------------------------------------------------------------------------
+
+// format(template, args...) -- sprintf-style string formatting
+func builtinFormat(args ...Object) Object {
+	if len(args) < 1 {
+		return newError("format: expected at least 1 argument (template), got %d", len(args))
+	}
+	template, ok := args[0].(*String)
+	if !ok {
+		return newError("format: first argument must be a string, got %s", args[0].Type())
+	}
+	fmtArgs := make([]interface{}, len(args)-1)
+	for i, arg := range args[1:] {
+		switch a := arg.(type) {
+		case *Integer:
+			fmtArgs[i] = a.Value
+		case *Float:
+			fmtArgs[i] = a.Value
+		case *String:
+			fmtArgs[i] = a.Value
+		case *Boolean:
+			fmtArgs[i] = a.Value
+		case *Nil:
+			fmtArgs[i] = nil
+		default:
+			fmtArgs[i] = a.Inspect()
+		}
+	}
+	return &String{Value: fmt.Sprintf(template.Value, fmtArgs...)}
+}
+
+// ---------------------------------------------------------------------------
+// Typed Errors
+// ---------------------------------------------------------------------------
+
+const VIBE_ERROR_OBJ = "VIBE_ERROR"
+
+// VibeError is a structured error type with message and optional data.
+type VibeError struct {
+	Message string
+	Data    Object
+}
+
+func (e *VibeError) Type() ObjectType { return VIBE_ERROR_OBJ }
+func (e *VibeError) Inspect() string {
+	if e.Data != nil && e.Data.Type() != NIL_OBJ {
+		return fmt.Sprintf("Error(%s, %s)", e.Message, e.Data.Inspect())
+	}
+	return fmt.Sprintf("Error(%s)", e.Message)
+}
+
+// Error(message, data?) -- create a structured error object
+func builtinError(args ...Object) Object {
+	if len(args) < 1 || len(args) > 2 {
+		return newError("Error: expected 1-2 arguments (message, data?), got %d", len(args))
+	}
+	msg, ok := args[0].(*String)
+	if !ok {
+		return newError("Error: first argument must be a string, got %s", args[0].Type())
+	}
+	var data Object = &Nil{}
+	if len(args) == 2 {
+		data = args[1]
+	}
+	return &VibeError{Message: msg.Value, Data: data}
 }
