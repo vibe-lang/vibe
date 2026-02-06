@@ -405,7 +405,7 @@ func extractTypeName(expr ast.Expression) string {
 
 // objectTypeName returns the Vibe type name for an object (e.g., "int", "string").
 func objectTypeName(obj Object) string {
-	switch obj.(type) {
+	switch obj := obj.(type) {
 	case *Integer:
 		return "int"
 	case *Float:
@@ -423,9 +423,9 @@ func objectTypeName(obj Object) string {
 	case *Function:
 		return "function"
 	case *StructInstance:
-		return obj.(*StructInstance).Struct.Name
+		return obj.Struct.Name
 	case *ClassInstance:
-		return obj.(*ClassInstance).Class.Name
+		return obj.Class.Name
 	default:
 		return string(obj.Type())
 	}

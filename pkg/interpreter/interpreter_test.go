@@ -62,6 +62,7 @@ func TestTypedArrayAssignments(t *testing.T) {
 		name     string
 		array    *Array
 		elemType ObjectType
+		count    int
 	}{
 		{
 			name: "Integer array",
@@ -73,6 +74,7 @@ func TestTypedArrayAssignments(t *testing.T) {
 				},
 			},
 			elemType: INTEGER_OBJ,
+			count:    3,
 		},
 		{
 			name: "String array",
@@ -83,6 +85,7 @@ func TestTypedArrayAssignments(t *testing.T) {
 				},
 			},
 			elemType: STRING_OBJ,
+			count:    2,
 		},
 		{
 			name: "Empty array",
@@ -90,6 +93,7 @@ func TestTypedArrayAssignments(t *testing.T) {
 				Elements: []Object{},
 			},
 			elemType: INTEGER_OBJ, // Type doesn't matter for empty array
+			count:    0,
 		},
 	}
 
@@ -102,9 +106,9 @@ func TestTypedArrayAssignments(t *testing.T) {
 			}
 
 			// Test the number of elements
-			if len(tt.array.Elements) != len(tt.array.Elements) {
+			if len(tt.array.Elements) != tt.count {
 				t.Errorf("wrong number of elements. got=%d, want=%d",
-					len(tt.array.Elements), len(tt.array.Elements))
+					len(tt.array.Elements), tt.count)
 			}
 
 			// Test each element's type
@@ -832,13 +836,13 @@ type CompoundType struct {
 
 func TestCompoundTypeMismatchErrors(t *testing.T) {
 	tests := []struct {
-		name           string
-		expectedTypes  []ObjectType
-		elements       []Object
-		expectedError  string
+		name          string
+		expectedTypes []ObjectType
+		elements      []Object
+		expectedError string
 	}{
 		{
-			name: "Type mismatch in compound: expected int, got STRING",
+			name:          "Type mismatch in compound: expected int, got STRING",
 			expectedTypes: []ObjectType{INTEGER_OBJ, INTEGER_OBJ},
 			elements: []Object{
 				&Integer{Value: 1},
@@ -847,7 +851,7 @@ func TestCompoundTypeMismatchErrors(t *testing.T) {
 			expectedError: "type mismatch in compound: expected int, got STRING",
 		},
 		{
-			name: "Type mismatch in compound: expected string, got INTEGER",
+			name:          "Type mismatch in compound: expected string, got INTEGER",
 			expectedTypes: []ObjectType{STRING_OBJ, STRING_OBJ, STRING_OBJ},
 			elements: []Object{
 				&String{Value: "hello"},
@@ -857,7 +861,7 @@ func TestCompoundTypeMismatchErrors(t *testing.T) {
 			expectedError: "type mismatch in compound: expected string, got INTEGER",
 		},
 		{
-			name: "Type mismatch in compound: expected boolean, got INTEGER",
+			name:          "Type mismatch in compound: expected boolean, got INTEGER",
 			expectedTypes: []ObjectType{STRING_OBJ, BOOLEAN_OBJ},
 			elements: []Object{
 				&String{Value: "test"},
@@ -926,21 +930,6 @@ func checkCompoundType(compound *Compound, compoundType *CompoundType) error {
 	}
 
 	return nil
-}
-
-// testEval parses and evaluates the input and returns the result.
-func testEval(input string) *Interpreter {
-	l := lexer.New(input)
-	p := parser.New(l)
-	program := p.ParseProgram()
-
-	// Debug output
-	fmt.Printf("Parsed program: %s\n", program.String())
-	fmt.Printf("Parser errors: %v\n", p.Errors())
-
-	interpreter := New()
-	interpreter.Eval(program)
-	return interpreter
 }
 
 // testEvalExpression evaluates a single expression and returns the result.

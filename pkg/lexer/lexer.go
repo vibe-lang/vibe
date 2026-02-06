@@ -17,13 +17,13 @@ import (
 // - Tracking line and column information for error reporting
 // - Ignoring whitespace and comments where appropriate
 type Lexer struct {
-	input        string  // the source code being analyzed
-	position     int     // current position in input (points to current char)
-	readPosition int     // current reading position in input (after current char)
-	ch           rune    // current character under examination
-	line         int     // current line number for error reporting
-	column       int     // current column number for error reporting
-	tokens       []Token // to store tokens for debugging
+	input        string // the source code being analyzed
+	position     int    // current position in input (points to current char)
+	readPosition int    // current reading position in input (after current char)
+	ch           rune   // current character under examination
+	line         int    // current line number for error reporting
+	column       int    // current column number for error reporting
+
 }
 
 // New creates a new Lexer for the provided input string.

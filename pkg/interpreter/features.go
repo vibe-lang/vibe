@@ -436,11 +436,6 @@ func (i *Interpreter) callClassConstructor(classObj *ClassObject, args []Object)
 		Fields: make(map[string]Object),
 	}
 
-	// Copy parent fields if there's inheritance
-	if classObj.Parent != nil {
-		// Inherited fields are handled through method resolution
-	}
-
 	// Call initialize if it exists
 	if initMethod, ok := classObj.GetMethod("initialize"); ok {
 		i.callMethodOnInstance(instance, initMethod, args)
@@ -745,49 +740,6 @@ func (i *Interpreter) validateFieldTypeArg(fieldName string, value Object, typeA
 	// The field's declared type would need to be tracked on the struct definition
 	// This is a simplified version that just checks the value matches the expected type
 	return nil // Type checking is done at the call site; field-level checking deferred
-}
-
-// validateTypeMatch checks if an object matches a concrete type name.
-func validateTypeMatch(obj Object, typeName string) bool {
-	switch typeName {
-	case "int":
-		_, ok := obj.(*Integer)
-		return ok
-	case "float":
-		_, ok := obj.(*Float)
-		if ok {
-			return true
-		}
-		_, ok = obj.(*Integer)
-		return ok
-	case "string":
-		_, ok := obj.(*String)
-		return ok
-	case "boolean":
-		_, ok := obj.(*Boolean)
-		return ok
-	case "nil":
-		_, ok := obj.(*Nil)
-		return ok
-	case "array":
-		_, ok := obj.(*Array)
-		return ok
-	case "hash":
-		_, ok := obj.(*Hash)
-		return ok
-	case "function":
-		_, ok := obj.(*Function)
-		return ok
-	default:
-		// Could be a struct/class name
-		if si, ok := obj.(*StructInstance); ok {
-			return si.Struct.Name == typeName
-		}
-		if ci, ok := obj.(*ClassInstance); ok {
-			return ci.Class.Name == typeName
-		}
-		return false
-	}
 }
 
 // ---------------------------------------------------------------------------

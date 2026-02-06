@@ -216,9 +216,7 @@ func (p *Parser) ParseProgram() *ast.Program {
 
 	for !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		if stmt != nil {
-			program.Statements = append(program.Statements, stmt)
-		}
+		program.Statements = append(program.Statements, stmt)
 		p.nextToken()
 	}
 
@@ -1086,9 +1084,7 @@ func (p *Parser) parseFunctionLiteral() ast.Expression {
 		// Parse statements until we reach 'end'
 		for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 			stmt := p.parseStatement()
-			if stmt != nil {
-				lit.Body.Statements = append(lit.Body.Statements, stmt)
-			}
+			lit.Body.Statements = append(lit.Body.Statements, stmt)
 			p.nextToken()
 		}
 
@@ -1135,9 +1131,7 @@ func (p *Parser) parseIfExpression() ast.Expression {
 
 	for !p.curTokenIs(lexer.ELSE) && !p.curTokenIs(lexer.ELSIF) && !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		if stmt != nil {
-			expression.Consequence.Statements = append(expression.Consequence.Statements, stmt)
-		}
+		expression.Consequence.Statements = append(expression.Consequence.Statements, stmt)
 		p.nextToken()
 	}
 
@@ -1170,9 +1164,7 @@ func (p *Parser) parseIfExpression() ast.Expression {
 
 		for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 			stmt := p.parseStatement()
-			if stmt != nil {
-				expression.Alternative.Statements = append(expression.Alternative.Statements, stmt)
-			}
+			expression.Alternative.Statements = append(expression.Alternative.Statements, stmt)
 			p.nextToken()
 		}
 	}
@@ -1244,9 +1236,6 @@ func (p *Parser) parseClassLiteral() ast.Expression {
 				// This is inheritance: class Dog < Animal (identName = Animal)
 				lit.Parent = &ast.Identifier{Token: p.curToken, Value: identName}
 			}
-		} else {
-			// After < there's no IDENT — treat as less-than (shouldn't happen in class context)
-			// Just skip and let the body parser handle it
 		}
 	}
 
@@ -1260,9 +1249,7 @@ func (p *Parser) parseClassLiteral() ast.Expression {
 
 	for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		if stmt != nil {
-			lit.Body.Statements = append(lit.Body.Statements, stmt)
-		}
+		lit.Body.Statements = append(lit.Body.Statements, stmt)
 		p.nextToken()
 	}
 
@@ -1637,9 +1624,7 @@ func (p *Parser) parseStructStatement() *ast.StructStatement {
 	// Keep parsing fields until we reach 'end'
 	for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 		field := p.parseStatement()
-		if field != nil {
-			stmt.Fields = append(stmt.Fields, field)
-		}
+		stmt.Fields = append(stmt.Fields, field)
 		p.nextToken()
 	}
 
@@ -1835,9 +1820,7 @@ func (p *Parser) parseBlockStatement() *ast.BlockStatement {
 
 	for !p.curTokenIs(lexer.RBRACE) && !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		if stmt != nil {
-			block.Statements = append(block.Statements, stmt)
-		}
+		block.Statements = append(block.Statements, stmt)
 		p.nextToken()
 	}
 
@@ -1896,9 +1879,7 @@ func (p *Parser) parseForStatement() *ast.ForLoop {
 	// Parse statements until we reach 'end'
 	for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		if stmt != nil {
-			forLoop.Body.Statements = append(forLoop.Body.Statements, stmt)
-		}
+		forLoop.Body.Statements = append(forLoop.Body.Statements, stmt)
 		p.nextToken()
 	}
 
@@ -1984,7 +1965,7 @@ func (p *Parser) parseIndexExpression(left ast.Expression) ast.Expression {
 
 // parseAssignError is a special function to provide better error messages when = is found as a prefix
 func (p *Parser) parseAssignError() ast.Expression {
-	msg := fmt.Sprintf("unexpected assignment operator. Did you mean to use a variable name before '='?")
+	msg := "unexpected assignment operator. Did you mean to use a variable name before '='?"
 	p.errors = append(p.errors, fmt.Sprintf("[%d:%d] %s",
 		p.curToken.Line, p.curToken.Column, msg))
 	return nil
@@ -2003,9 +1984,7 @@ func (p *Parser) parseWhileStatement() *ast.WhileLoop {
 
 	for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		if stmt != nil {
-			loop.Body.Statements = append(loop.Body.Statements, stmt)
-		}
+		loop.Body.Statements = append(loop.Body.Statements, stmt)
 		p.nextToken()
 	}
 
@@ -2081,9 +2060,7 @@ func (p *Parser) parseTryExpression() ast.Expression {
 
 	for !p.curTokenIs(lexer.CATCH) && !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		if stmt != nil {
-			expr.Body.Statements = append(expr.Body.Statements, stmt)
-		}
+		expr.Body.Statements = append(expr.Body.Statements, stmt)
 		p.nextToken()
 	}
 
@@ -2105,9 +2082,7 @@ func (p *Parser) parseTryExpression() ast.Expression {
 
 	for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.FINALLY) && !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		if stmt != nil {
-			expr.CatchBody.Statements = append(expr.CatchBody.Statements, stmt)
-		}
+		expr.CatchBody.Statements = append(expr.CatchBody.Statements, stmt)
 		p.nextToken()
 	}
 
@@ -2119,9 +2094,7 @@ func (p *Parser) parseTryExpression() ast.Expression {
 
 		for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 			stmt := p.parseStatement()
-			if stmt != nil {
-				expr.FinallyBody.Statements = append(expr.FinallyBody.Statements, stmt)
-			}
+			expr.FinallyBody.Statements = append(expr.FinallyBody.Statements, stmt)
 			p.nextToken()
 		}
 	}
@@ -2287,9 +2260,7 @@ func (p *Parser) parseUnlessExpression() ast.Expression {
 
 	for !p.curTokenIs(lexer.ELSE) && !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		if stmt != nil {
-			expression.Consequence.Statements = append(expression.Consequence.Statements, stmt)
-		}
+		expression.Consequence.Statements = append(expression.Consequence.Statements, stmt)
 		p.nextToken()
 	}
 
@@ -2301,9 +2272,7 @@ func (p *Parser) parseUnlessExpression() ast.Expression {
 		p.nextToken()
 		for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 			stmt := p.parseStatement()
-			if stmt != nil {
-				expression.Alternative.Statements = append(expression.Alternative.Statements, stmt)
-			}
+			expression.Alternative.Statements = append(expression.Alternative.Statements, stmt)
 			p.nextToken()
 		}
 	}
@@ -2329,9 +2298,7 @@ func (p *Parser) parseUntilStatement() *ast.UntilLoop {
 
 	for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 		stmt := p.parseStatement()
-		if stmt != nil {
-			loop.Body.Statements = append(loop.Body.Statements, stmt)
-		}
+		loop.Body.Statements = append(loop.Body.Statements, stmt)
 		p.nextToken()
 	}
 
@@ -2370,9 +2337,7 @@ func (p *Parser) parseCaseExpression() ast.Expression {
 		p.nextToken()
 		for !p.curTokenIs(lexer.WHEN) && !p.curTokenIs(lexer.ELSE) && !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 			stmt := p.parseStatement()
-			if stmt != nil {
-				when.Body.Statements = append(when.Body.Statements, stmt)
-			}
+			when.Body.Statements = append(when.Body.Statements, stmt)
 			p.nextToken()
 		}
 
@@ -2385,9 +2350,7 @@ func (p *Parser) parseCaseExpression() ast.Expression {
 		p.nextToken()
 		for !p.curTokenIs(lexer.END) && !p.curTokenIs(lexer.EOF) {
 			stmt := p.parseStatement()
-			if stmt != nil {
-				expr.Default.Statements = append(expr.Default.Statements, stmt)
-			}
+			expr.Default.Statements = append(expr.Default.Statements, stmt)
 			p.nextToken()
 		}
 	}
