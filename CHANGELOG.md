@@ -4,6 +4,14 @@ All notable changes to the Vibe language will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.3](https://github.com/vibe-lang/vibe/compare/v0.2.2...v0.2.3) (2026-02-06)
+
+
+### Bug Fixes
+
+* resolve all golangci-lint errors ([4ef82ff](https://github.com/vibe-lang/vibe/commit/4ef82ff1aa7ca75b46d404366aa31497a2c409b6))
+* resolve data race in concurrent spawn/await ([2bfd23c](https://github.com/vibe-lang/vibe/commit/2bfd23cf80e242cd3f69858b01d49b8e1975b586))
+
 ## [0.2.2](https://github.com/vibe-lang/vibe/compare/v0.2.1...v0.2.2) (2026-02-06)
 
 
