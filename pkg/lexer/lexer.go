@@ -17,13 +17,13 @@ import (
 // - Tracking line and column information for error reporting
 // - Ignoring whitespace and comments where appropriate
 type Lexer struct {
-	input        string // the source code being analyzed
-	position     int    // current position in input (points to current char)
-	readPosition int    // current reading position in input (after current char)
-	ch           rune   // current character under examination
-	line         int    // current line number for error reporting
-	column       int    // current column number for error reporting
-	tokens       []Token  // to store tokens for debugging
+	input        string  // the source code being analyzed
+	position     int     // current position in input (points to current char)
+	readPosition int     // current reading position in input (after current char)
+	ch           rune    // current character under examination
+	line         int     // current line number for error reporting
+	column       int     // current column number for error reporting
+	tokens       []Token // to store tokens for debugging
 }
 
 // New creates a new Lexer for the provided input string.
@@ -52,6 +52,7 @@ func New(input string) *Lexer {
 func (l *Lexer) readChar() {
 	if l.readPosition >= len(l.input) {
 		l.ch = 0 // EOF
+		l.position = l.readPosition
 	} else {
 		r, size := utf8.DecodeRuneInString(l.input[l.readPosition:])
 		l.ch = r
@@ -111,9 +112,25 @@ func (l *Lexer) NextToken() Token {
 			tok = Token{Type: ASSIGN, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
 	case '+':
-		tok = Token{Type: PLUS, Literal: string(l.ch), Line: l.line, Column: l.column}
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: PLUS_ASSIGN, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+		} else {
+			tok = Token{Type: PLUS, Literal: string(l.ch), Line: l.line, Column: l.column}
+		}
 	case '-':
-		tok = Token{Type: MINUS, Literal: string(l.ch), Line: l.line, Column: l.column}
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: MINUS_ASSIGN, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+		} else if l.peekChar() == '>' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: ARROW, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+		} else {
+			tok = Token{Type: MINUS, Literal: string(l.ch), Line: l.line, Column: l.column}
+		}
 	case '!':
 		if l.peekChar() == '=' {
 			ch := l.ch
@@ -122,18 +139,56 @@ func (l *Lexer) NextToken() Token {
 		} else {
 			tok = Token{Type: BANG, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
+	case '&':
+		if l.peekChar() == '&' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: AND, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+		} else {
+			tok = Token{Type: ILLEGAL, Literal: string(l.ch), Line: l.line, Column: l.column}
+		}
+	case '|':
+		if l.peekChar() == '|' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: OR, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+		} else if l.peekChar() == '>' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: PIPE_ARROW, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+		} else {
+			tok = Token{Type: PIPE, Literal: string(l.ch), Line: l.line, Column: l.column}
+		}
 	case '*':
-		tok = Token{Type: ASTERISK, Literal: string(l.ch), Line: l.line, Column: l.column}
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: ASTERISK_ASSIGN, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+		} else {
+			tok = Token{Type: ASTERISK, Literal: string(l.ch), Line: l.line, Column: l.column}
+		}
 	case '/':
 		if l.peekChar() == '/' {
 			// Comment, skip until end of line
 			l.skipComment()
 			return l.NextToken()
+		} else if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: SLASH_ASSIGN, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
 		} else {
 			tok = Token{Type: SLASH, Literal: string(l.ch), Line: l.line, Column: l.column}
 		}
 	case '%':
-		tok = Token{Type: MODULO, Literal: string(l.ch), Line: l.line, Column: l.column}
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = Token{Type: MODULO_ASSIGN, Literal: string(ch) + string(l.ch), Line: l.line, Column: l.column - 1}
+		} else {
+			tok = Token{Type: MODULO, Literal: string(l.ch), Line: l.line, Column: l.column}
+		}
+	case '?':
+		tok = Token{Type: QUESTION, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '<':
 		if l.peekChar() == '=' {
 			ch := l.ch
@@ -187,9 +242,9 @@ func (l *Lexer) NextToken() Token {
 	case ']':
 		tok = Token{Type: RBRACKET, Literal: string(l.ch), Line: l.line, Column: l.column}
 	case '#':
-		tok = Token{Type: HASH, Literal: string(l.ch), Line: l.line, Column: l.column}
-		// Skip the rest of the line after a comment character
+		// Skip the comment and return the next token
 		l.skipComment()
+		return l.NextToken()
 	case '"':
 		tok.Type = STRING
 		tok.Literal = l.readString()
@@ -280,17 +335,20 @@ func (l *Lexer) readNumber() Token {
 }
 
 // readString reads a string literal, handling escape sequences and interpolation.
-// In Vibe, string literals are enclosed in double quotes.
+// In Vibe, string literals are enclosed in double quotes or single quotes.
 // String interpolation is supported using ${expression} syntax.
 func (l *Lexer) readString() string {
 	var out bytes.Buffer
+
+	// Remember the opening quote character so we can match it for closing
+	openQuote := l.ch
 
 	// Skip the opening quote
 	l.readChar()
 
 	for {
-		// Handle string termination
-		if l.ch == '"' || l.ch == 0 {
+		// Handle string termination - match against the opening quote
+		if l.ch == openQuote || l.ch == 0 {
 			break
 		}
 

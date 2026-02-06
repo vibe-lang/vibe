@@ -1,6 +1,6 @@
 # Vibe Language Syntax Guide
 
-This guide documents the syntax and features of the Vibe programming language, a Ruby-like language with static type annotations.
+This guide documents the syntax and features of the Vibe programming language, a Ruby-like language with optional type annotations.
 
 ## Table of Contents
 
@@ -10,10 +10,14 @@ This guide documents the syntax and features of the Vibe programming language, a
 4. [Control Structures](#control-structures)
 5. [Functions](#functions)
 6. [Arrays](#arrays)
-7. [Ranges](#ranges)
-8. [Classes and Objects](#classes-and-objects)
-9. [Comments](#comments)
-10. [String Interpolation](#string-interpolation)
+7. [Hash Maps](#hash-maps)
+8. [Ranges](#ranges)
+9. [Structs](#structs)
+10. [Comments](#comments)
+11. [String Interpolation](#string-interpolation)
+12. [Error Handling](#error-handling)
+13. [Imports](#imports)
+14. [Built-in Functions](#built-in-functions)
 
 ## Variables
 
@@ -34,6 +38,15 @@ name: string = "Alice"
 age: int = 30
 is_student: boolean = false
 salary: float = 75000.50
+```
+
+### Using `let` Keyword
+
+The `let` keyword is optional and works the same as direct assignment:
+
+```vibe
+let x = 42
+let name = "Bob"
 ```
 
 ## Types
@@ -67,42 +80,59 @@ remainder = a % b  # Modulo: 1
 a = 10
 b = 3
 
-is_equal = a == b          # Equal to: false
-is_not_equal = a != b      # Not equal to: true
-is_greater = a > b         # Greater than: true
-is_less = a < b            # Less than: false
-is_greater_or_equal = a >= b # Greater than or equal to: true
-is_less_or_equal = a <= b  # Less than or equal to: false
+a == b    # Equal to: false
+a != b    # Not equal to: true
+a > b     # Greater than: true
+a < b     # Less than: false
+a >= b    # Greater than or equal to: true
+a <= b    # Less than or equal to: false
 ```
 
 ### Logical Operators
 
 ```vibe
-is_true = true
-is_false = false
+# AND — returns false if left side is falsy, otherwise returns right side
+true && true     # true
+true && false    # false
+false && true    # false (short-circuits, right side not evaluated)
 
-and_result = is_true && is_false  # Logical AND: false
-or_result = is_true || is_false   # Logical OR: true
-not_result = !is_true             # Logical NOT: false
+# OR — returns left side if truthy, otherwise returns right side
+true || false    # true (short-circuits, right side not evaluated)
+false || true    # true
+false || false   # false
+
+# NOT
+!true            # false
+!false           # true
+!nil             # true (nil is falsy)
+```
+
+`&&` binds tighter than `||`, so `a || b && c` is parsed as `a || (b && c)`.
+
+### Prefix Operators
+
+```vibe
+-5       # Negation
+!true    # Logical NOT
 ```
 
 ## Control Structures
 
-### If Statements
+### If / Elsif / Else
 
 ```vibe
 if age >= 18
   puts("You are an adult")
 elsif age >= 13
-  puts "You are a teenager"
+  puts("You are a teenager")
 else
-  puts "You are a child"
+  puts("You are a child")
 end
 ```
 
 ### If Expressions
 
-If statements can also be used as expressions that return values:
+If statements can be used as expressions that return values:
 
 ```vibe
 status = if age >= 18
@@ -112,64 +142,138 @@ else
 end
 ```
 
+### For Loops
+
+Iterate over arrays or ranges:
+
+```vibe
+# Over an array
+for name in ["Alice", "Bob", "Charlie"]
+  puts(name)
+end
+
+# Over a range
+for i in 1..10
+  puts(i)
+end
+
+# Over a variable
+numbers = [1, 2, 3, 4, 5]
+for num in numbers
+  puts(num)
+end
+```
+
+### While Loops
+
+```vibe
+i = 0
+while i < 10
+  puts(i)
+  i = i + 1
+end
+```
+
+### Break and Continue
+
+`break` exits the current loop. `continue` skips to the next iteration.
+
+```vibe
+# Break out of a loop early
+for i in 1..100
+  if i > 5
+    break
+  end
+  puts(i)
+end
+
+# Skip even numbers
+for i in 1..10
+  if i % 2 == 0
+    continue
+  end
+  puts(i)
+end
+
+# Works in while loops too
+count = 0
+while true
+  count = count + 1
+  if count > 10
+    break
+  end
+end
+```
+
 ## Functions
 
 ### Function Definition
 
-Functions in Vibe are defined using the `def` keyword and end with the `end` keyword.
+Functions are defined using `def` and end with `end`. The last expression is implicitly returned.
 
 ```vibe
 def greet(name: string): string
-  "Hello, #{name}!"
+  "Hello, ${name}!"
 end
 ```
 
-### Function with Multiple Parameters and Type Annotations
+### Explicit Return
 
 ```vibe
-def add_numbers(x: int, y: int): int
-  x + y
+def factorial(n: int): int
+  if n <= 1
+    return 1
+  end
+  n * factorial(n - 1)
 end
 ```
 
-### Function with Multiple Parameters Sharing a Type Annotation
+### Multiple Parameters
 
 ```vibe
-def process(x, y: string, z: int): boolean
-  # Parameters x and y share the same type annotation
-  true
+def add(a: int, b: int): int
+  a + b
 end
 ```
 
 ### Function Calls
 
 ```vibe
-message = greet("World")
-puts message  # Output: Hello, World!
+result = add(5, 3)
+puts(result)       # 8
+puts(greet("World"))  # Hello, World!
 ```
 
-### Functions with Explicit Return
+### Closures
+
+Functions capture variables from their enclosing scope:
 
 ```vibe
-def multiply(x: int, y: int): int
-  return x * y
+def make_counter()
+  count = 0
+  def increment(): int
+    count = count + 1
+    count
+  end
+  increment
 end
+
+counter = make_counter()
+puts(counter())  # 1
+puts(counter())  # 2
 ```
 
-### Functions with Implicit Return
+### Higher-Order Functions
 
-The last expression in a function body is implicitly returned.
+Functions can be passed as arguments:
 
 ```vibe
-def subtract(a: int, b: int): int
-  a - b  # This value is returned
+def double(x: int): int
+  x * 2
 end
-```
 
-### One-line Function Definition
-
-```vibe
-def square(n: int): int n * n end
+nums = [1, 2, 3, 4, 5]
+result = map(nums, double)   # [2, 4, 6, 8, 10]
 ```
 
 ## Arrays
@@ -196,122 +300,149 @@ matrix = [[1, 2], [3, 4]]
 nested: int[][] = [[1, 2], [3, 4]]
 ```
 
+### Array Access and Mutation
+
+```vibe
+arr = [10, 20, 30]
+puts(arr[0])     # 10
+puts(arr[2])     # 30
+
+arr[1] = 99      # Mutation
+puts(arr)        # [10, 99, 30]
+```
+
+### Array Concatenation
+
+```vibe
+a = [1, 2]
+b = [3, 4]
+c = a + b        # [1, 2, 3, 4]
+```
+
+## Hash Maps
+
+Hash maps store key-value pairs.
+
+### Creating a Hash
+
+```vibe
+# Bare identifier keys (converted to strings)
+config = {host: "localhost", port: 8080, debug: true}
+
+# String keys
+settings = {"theme": "dark", "font_size": 14}
+
+# Empty hash
+empty = {}
+```
+
+### Access and Mutation
+
+```vibe
+config = {host: "localhost", port: 8080}
+
+puts(config["host"])    # localhost
+config["port"] = 9090   # Mutation
+config["new_key"] = 42  # Add new key
+```
+
+### Hash Built-ins
+
+```vibe
+h = {a: 1, b: 2, c: 3}
+
+keys(h)       # ["a", "b", "c"]
+values(h)     # [1, 2, 3]
+len(h)        # 3
+contains(h, "a")  # true
+```
+
 ## Ranges
 
 Ranges represent a sequence of values between a start and end point.
 
 ### Inclusive Ranges
 
-Inclusive ranges include both the start and end values.
-
 ```vibe
 # Range from 1 to 5 (includes 1, 2, 3, 4, 5)
-r1 = 1..5
-
-# Using variables
-start = 10
-end_val = 20
-r2 = start..end_val
-
-# Descending range (includes 50, 49, ..., 10)
-r3 = 50..10
+r = 1..5
 ```
 
 ### Exclusive Ranges
 
-Exclusive ranges include the start value but exclude the end value.
-
 ```vibe
-# Range from 1 to 5 (includes 1, 2, 3, 4, not 5)
-r1 = 1...5
-
-# Using variables
-start = 10
-end_val = 20
-r2 = start...end_val
-
-# Descending range (includes 50, 49, ..., 11, not 10)
-r3 = 50...10
-```
-
-### Range Constructor
-
-You can also create ranges using the `Range` constructor.
-
-```vibe
-# Inclusive range from 1 to 10
-r1 = Range(1, 10)
-
-# Using variables
-start = 5
-end_val = 15
-r2 = Range(start, end_val)
+# Range from 1 to 5 (includes 1, 2, 3, 4, NOT 5)
+r = 1...5
 ```
 
 ### Using Ranges
 
-Ranges can be used in various contexts:
-
 ```vibe
-# Checking if a value is in a range
-in_range = 3.in?(1..5)  # true
-
 # Iterating over a range
 for i in 1..5
   puts(i)
 end
 
-# Getting an array from a range
-numbers = (1..5).to_array()  # [1, 2, 3, 4, 5]
-```
-
-## Classes and Objects
-
-### Class Definition
-
-```vibe
-class Person
-  prop name: string
-  prop age: int
-
-  def initialize(name: string, age: int)
-    @name = name
-    @age = age
-  end
-
-  def describe(): string
-    "#{@name} is #{@age} years old"
-  end
-
-  def have_birthday()
-    @age = @age + 1
-  end
+# Ranges with variables
+start = 10
+end_val = 20
+for i in start..end_val
+  puts(i)
 end
 ```
 
-### Creating Objects
+## Structs
+
+Structs define lightweight data types with named fields.
+
+### Struct Definition
 
 ```vibe
-alice = Person.new("Alice", 30)
-puts(alice.describe())  # Output: Alice is 30 years old
+struct Point
+  x: int
+  y: int
+end
 
-alice.have_birthday()
-puts(alice.describe())  # Output: Alice is 31 years old
+struct Person
+  name: string
+  age: int
+  active: boolean
+end
 ```
 
-### Instance Variables
-
-Instance variables are prefixed with `@` and are accessible within instance methods.
+### Creating Instances
 
 ```vibe
-def describe(): string
-  "My name is #{@name} and I am #{@age} years old"
+p = Point(x: 10, y: 20)
+alice = Person(name: "Alice", age: 30, active: true)
+```
+
+### Field Access and Mutation
+
+```vibe
+puts(alice.name)    # Alice
+puts(alice.age)     # 30
+
+alice.age = 31      # Field mutation
+puts(alice.age)     # 31
+```
+
+### Arrays of Structs
+
+```vibe
+people = [
+  Person(name: "Alice", age: 30, active: true),
+  Person(name: "Bob", age: 25, active: false)
+]
+
+for person in people
+  puts("${person.name}: ${person.age}")
 end
 ```
 
 ## Comments
 
-Vibe supports single-line comments using the `#` character:
+Vibe supports single-line comments using `#`:
 
 ```vibe
 # This is a comment
@@ -320,25 +451,154 @@ x = 42  # This is an end-of-line comment
 
 ## String Interpolation
 
-String interpolation allows you to embed expressions inside string literals:
+Embed arbitrary expressions inside double-quoted strings using `${expression}`:
 
 ```vibe
 name = "Alice"
 age = 30
-message = "Hello, my name is #{name} and I am #{age} years old"
+puts("Hello, ${name}!")                    # Hello, Alice!
+puts("${name} is ${age} years old")        # Alice is 30 years old
+puts("2 + 2 = ${2 + 2}")                  # 2 + 2 = 4
+puts("Is adult: ${age >= 18}")             # Is adult: true
 ```
 
-In the above example, `#{name}` will be replaced with the value of the `name` variable, and `#{age}` will be replaced with the value of the `age` variable.
+Interpolation supports any expression: variables, function calls, arithmetic, comparisons, dot access, and more.
 
-## Structs
-
-Vibe supports struct definitions for creating user-defined compound types:
+Single-quoted strings do not support interpolation:
 
 ```vibe
-struct Point
-  x: int
-  y: int
+puts('Hello, ${name}')  # Prints literally: Hello, ${name}
+```
+
+## Error Handling
+
+### Try / Catch
+
+```vibe
+try
+  result = risky_operation()
+catch e
+  puts("Error: ${e}")
+end
+```
+
+### Throw
+
+Raise errors with `throw`:
+
+```vibe
+def divide(a: int, b: int): int
+  if b == 0
+    throw "division by zero"
+  end
+  a / b
 end
 
-p = Point(x: 10, y: 20)
+try
+  divide(10, 0)
+catch e
+  puts("Caught: ${e}")
+end
 ```
+
+`catch` handles both `throw` values and runtime errors (like index out of bounds).
+
+## Imports
+
+Import and execute another Vibe file in the current environment:
+
+```vibe
+import "lib/helpers.vb"
+
+# All functions and variables from helpers.vb are now available
+result = helper_function()
+```
+
+Imports evaluate the file in the current scope, so all definitions become available.
+
+## Built-in Functions
+
+### I/O
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `puts(value)` | Print value with newline | `puts("hello")` |
+| `print(value)` | Print value without newline | `print("hello ")` |
+| `input(prompt?)` | Read a line from stdin | `name = input("Name: ")` |
+
+### Type Conversion
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `type(value)` | Get type as string | `type(42)` → `"INTEGER"` |
+| `to_s(value)` | Convert to string | `to_s(42)` → `"42"` |
+| `to_i(value)` | Convert to integer | `to_i("42")` → `42` |
+| `to_f(value)` | Convert to float | `to_f("3.14")` → `3.14` |
+
+### Collections
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `len(collection)` | Get length | `len([1,2,3])` → `3` |
+| `push(arr, elem)` | Append element (returns new array) | `push([1,2], 3)` → `[1,2,3]` |
+| `pop(arr)` | Get last element | `pop([1,2,3])` → `3` |
+| `first(arr)` | Get first element | `first([1,2,3])` → `1` |
+| `last(arr)` | Get last element | `last([1,2,3])` → `3` |
+| `rest(arr)` | All elements except first | `rest([1,2,3])` → `[2,3]` |
+| `append(arr, elem)` | Alias for `push` | `append([1,2], 3)` → `[1,2,3]` |
+
+### Higher-Order
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `map(arr, fn)` | Transform each element | `map([1,2,3], double)` |
+| `filter(arr, fn)` | Keep elements where fn returns true | `filter([1,2,3], is_even)` |
+| `each(arr, fn)` | Execute fn for each element | `each(names, puts)` |
+
+### Array Operations
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `sort(arr)` | Sort array (returns new) | `sort([3,1,2])` → `[1,2,3]` |
+| `reverse(arr)` | Reverse array (returns new) | `reverse([1,2,3])` → `[3,2,1]` |
+| `contains(arr, val)` | Check if array contains value | `contains([1,2,3], 2)` → `true` |
+
+### Hash Operations
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `keys(hash)` | Get all keys as array | `keys({a: 1})` → `["a"]` |
+| `values(hash)` | Get all values as array | `values({a: 1})` → `[1]` |
+
+### String Operations
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `split(str, delim)` | Split string into array | `split("a,b,c", ",")` → `["a","b","c"]` |
+| `join(arr, sep)` | Join array into string | `join(["a","b"], ",")` → `"a,b"` |
+| `replace(str, old, new)` | Replace all occurrences | `replace("hello", "l", "r")` → `"herro"` |
+| `trim(str)` | Remove leading/trailing whitespace | `trim("  hi  ")` → `"hi"` |
+| `string_length(str)` | Get string character count | `string_length("hello")` → `5` |
+| `contains(str, sub)` | Check if string contains substring | `contains("hello", "ell")` → `true` |
+
+### Math
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `abs(num)` | Absolute value | `abs(-5)` → `5` |
+| `min(a, b)` | Smaller of two integers | `min(3, 7)` → `3` |
+| `max(a, b)` | Larger of two integers | `max(3, 7)` → `7` |
+
+### File I/O
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `read_file(path)` | Read file contents as string | `read_file("data.txt")` |
+| `write_file(path, content)` | Write string to file | `write_file("out.txt", "hello")` |
+| `file_exists(path)` | Check if file exists | `file_exists("data.txt")` → `true` |
+
+### System
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `exit(code?)` | Exit the program | `exit(1)` |

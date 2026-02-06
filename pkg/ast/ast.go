@@ -74,13 +74,13 @@ func (p *Program) String() string {
 // Type annotations provide static type information to variables, parameters,
 // and return values. They are a key feature that distinguishes Vibe from Ruby.
 type TypeAnnotation struct {
-	Token            lexer.Token     // the COLON token
-	Name             string          // The name of the type (e.g., "String", "Int")
-	IsCompoundType   bool            // Whether this is a compound type like [int, string]
-	CompoundTypes    []string        // The list of types in a compound type
+	Token          lexer.Token // the COLON token
+	Name           string      // The name of the type (e.g., "String", "Int")
+	IsCompoundType bool        // Whether this is a compound type like [int, string]
+	CompoundTypes  []string    // The list of types in a compound type
 }
 
-func (ta *TypeAnnotation) expressionNode() {}
+func (ta *TypeAnnotation) expressionNode()      {}
 func (ta *TypeAnnotation) TokenLiteral() string { return ta.Token.Literal }
 func (ta *TypeAnnotation) String() string {
 	if ta.IsCompoundType {
@@ -100,7 +100,7 @@ type ReturnStatement struct {
 	Value Expression  // The expression to return
 }
 
-func (rs *ReturnStatement) statementNode() {}
+func (rs *ReturnStatement) statementNode()       {}
 func (rs *ReturnStatement) TokenLiteral() string { return rs.Token.Literal }
 
 // String returns a string representation of the ReturnStatement.
@@ -126,10 +126,10 @@ func (rs *ReturnStatement) String() string {
 // common in languages like Vibe/Ruby where function calls can stand alone.
 type ExpressionStatement struct {
 	Token      lexer.Token // the first token of the expression
-	Expression Expression   // The expression
+	Expression Expression  // The expression
 }
 
-func (es *ExpressionStatement) statementNode() {}
+func (es *ExpressionStatement) statementNode()       {}
 func (es *ExpressionStatement) TokenLiteral() string { return es.Token.Literal }
 
 // String returns a string representation of the ExpressionStatement.
@@ -150,11 +150,11 @@ func (es *ExpressionStatement) String() string {
 //	    return x
 //	end
 type BlockStatement struct {
-	Token      lexer.Token    // The token that starts the block (e.g., '{', 'do', etc.)
-	Statements []Statement    // The statements in the block
+	Token      lexer.Token // The token that starts the block (e.g., '{', 'do', etc.)
+	Statements []Statement // The statements in the block
 }
 
-func (bs *BlockStatement) statementNode() {}
+func (bs *BlockStatement) statementNode()       {}
 func (bs *BlockStatement) TokenLiteral() string { return bs.Token.Literal }
 
 // String returns a string representation of the BlockStatement.
@@ -179,9 +179,9 @@ type Identifier struct {
 	Value string      // The name of the identifier
 }
 
-func (i *Identifier) expressionNode() {}
+func (i *Identifier) expressionNode()      {}
 func (i *Identifier) TokenLiteral() string { return i.Token.Literal }
-func (i *Identifier) String() string { return i.Value }
+func (i *Identifier) String() string       { return i.Value }
 
 // IntegerLiteral represents an integer literal.
 // Example in Vibe code: `5` or `42`
@@ -190,9 +190,9 @@ type IntegerLiteral struct {
 	Value int64       // The numeric value
 }
 
-func (il *IntegerLiteral) expressionNode() {}
+func (il *IntegerLiteral) expressionNode()      {}
 func (il *IntegerLiteral) TokenLiteral() string { return il.Token.Literal }
-func (il *IntegerLiteral) String() string { return il.Token.Literal }
+func (il *IntegerLiteral) String() string       { return il.Token.Literal }
 
 // FloatLiteral represents a floating point literal.
 // Example in Vibe code: `3.14` or `2.5`
@@ -201,9 +201,9 @@ type FloatLiteral struct {
 	Value float64     // The numeric value
 }
 
-func (fl *FloatLiteral) expressionNode() {}
+func (fl *FloatLiteral) expressionNode()      {}
 func (fl *FloatLiteral) TokenLiteral() string { return fl.Token.Literal }
-func (fl *FloatLiteral) String() string { return fl.Token.Literal }
+func (fl *FloatLiteral) String() string       { return fl.Token.Literal }
 
 // StringLiteral represents a string literal.
 // Example in Vibe code: `"hello"` or `'world'`
@@ -212,9 +212,9 @@ type StringLiteral struct {
 	Value string      // The string value
 }
 
-func (sl *StringLiteral) expressionNode() {}
+func (sl *StringLiteral) expressionNode()      {}
 func (sl *StringLiteral) TokenLiteral() string { return sl.Token.Literal }
-func (sl *StringLiteral) String() string { return "\"" + sl.Value + "\"" }
+func (sl *StringLiteral) String() string       { return "\"" + sl.Value + "\"" }
 
 // BooleanLiteral represents a boolean literal.
 // Example in Vibe code: `true` or `false`
@@ -223,9 +223,9 @@ type BooleanLiteral struct {
 	Value bool        // The boolean value
 }
 
-func (bl *BooleanLiteral) expressionNode() {}
+func (bl *BooleanLiteral) expressionNode()      {}
 func (bl *BooleanLiteral) TokenLiteral() string { return bl.Token.Literal }
-func (bl *BooleanLiteral) String() string { return bl.Token.Literal }
+func (bl *BooleanLiteral) String() string       { return bl.Token.Literal }
 
 // NilLiteral represents a nil value.
 // Example in Vibe code: `nil`
@@ -235,9 +235,9 @@ type NilLiteral struct {
 	Token lexer.Token // the NIL token
 }
 
-func (nl *NilLiteral) expressionNode() {}
+func (nl *NilLiteral) expressionNode()      {}
 func (nl *NilLiteral) TokenLiteral() string { return nl.Token.Literal }
-func (nl *NilLiteral) String() string { return "nil" }
+func (nl *NilLiteral) String() string       { return "nil" }
 
 // FunctionLiteral represents a function definition.
 // Example in Vibe code:
@@ -249,21 +249,23 @@ func (nl *NilLiteral) String() string { return "nil" }
 // Functions in Vibe can be named or anonymous, can have
 // typed or untyped parameters, and can specify a return type.
 type FunctionLiteral struct {
-	Token      lexer.Token       // The 'fn' or 'def' token
-	Name       *Identifier       // Optional function name (can be nil for anonymous functions)
-	Parameters []*Identifier     // Parameters (can be empty)
-	ParamTypes []Expression      // Parameter type annotations (can be nil for untyped parameters)
-	ReturnType Expression        // Return type annotation (can be nil)
-	Body       *BlockStatement   // Function body
+	Token         lexer.Token     // The 'fn' or 'def' token
+	Name          *Identifier     // Optional function name (can be nil for anonymous functions)
+	Parameters    []*Identifier   // Parameters (can be empty)
+	ParamTypes    []Expression    // Parameter type annotations (can be nil for untyped parameters)
+	ParamDefaults []Expression    // Default values for parameters (can be nil for required parameters)
+	ReturnType    Expression      // Return type annotation (can be nil)
+	Body          *BlockStatement // Function body
 }
 
-func (fl *FunctionLiteral) expressionNode() {}
+func (fl *FunctionLiteral) expressionNode()      {}
 func (fl *FunctionLiteral) TokenLiteral() string { return fl.Token.Literal }
 
 // String returns a string representation of the function.
 // Format: "def [name](<params>) [: <return_type>]
-//             <body>
-//         end"
+//
+//	    <body>
+//	end"
 func (fl *FunctionLiteral) String() string {
 	var out bytes.Buffer
 
@@ -308,12 +310,13 @@ func (fl *FunctionLiteral) String() string {
 // Classes in Vibe are similar to Ruby classes but include type annotations
 // for properties and methods, providing better type safety.
 type ClassLiteral struct {
-	Token    lexer.Token     // the 'class' token
-	Name     *Identifier     // The class name
-	Body     *BlockStatement // Class body containing properties and methods
+	Token  lexer.Token     // the 'class' token
+	Name   *Identifier     // The class name
+	Parent *Identifier     // Optional parent class (for inheritance with <)
+	Body   *BlockStatement // Class body containing properties and methods
 }
 
-func (cl *ClassLiteral) expressionNode() {}
+func (cl *ClassLiteral) expressionNode()      {}
 func (cl *ClassLiteral) TokenLiteral() string { return cl.Token.Literal }
 
 // String returns a string representation of the ClassLiteral.
@@ -341,7 +344,7 @@ type PropertyStatement struct {
 	Type  *TypeAnnotation // The property type (optional but recommended)
 }
 
-func (ps *PropertyStatement) statementNode() {}
+func (ps *PropertyStatement) statementNode()       {}
 func (ps *PropertyStatement) TokenLiteral() string { return ps.Token.Literal }
 
 // String returns a string representation of the PropertyStatement.
@@ -371,7 +374,7 @@ type CallExpression struct {
 	Arguments []Expression // The arguments passed to the function
 }
 
-func (ce *CallExpression) expressionNode() {}
+func (ce *CallExpression) expressionNode()      {}
 func (ce *CallExpression) TokenLiteral() string { return ce.Token.Literal }
 
 // String returns a string representation of the CallExpression.
@@ -394,9 +397,13 @@ func (ce *CallExpression) String() string {
 
 // IfExpression represents an if expression.
 // Example in Vibe code: `if x > 5
-//    return true
+//
+//	return true
+//
 // else
-//    return false
+//
+//	return false
+//
 // end`
 //
 // If expressions in Vibe are similar to Ruby and can be used
@@ -408,7 +415,7 @@ type IfExpression struct {
 	Alternative *BlockStatement // The block to execute if condition is false (optional)
 }
 
-func (ie *IfExpression) expressionNode() {}
+func (ie *IfExpression) expressionNode()      {}
 func (ie *IfExpression) TokenLiteral() string { return ie.Token.Literal }
 
 // String returns a string representation of the IfExpression.
@@ -436,7 +443,7 @@ func (ie *IfExpression) String() string {
 type AssignmentExpression struct {
 	Token          lexer.Token // the = token
 	Name           *Identifier
-	TypeAnnotation Expression  // Optional type annotation (can be nil)
+	TypeAnnotation Expression // Optional type annotation (can be nil)
 	Value          Expression
 }
 
@@ -482,8 +489,8 @@ func (ti *TypedIdentifier) String() string {
 // ArrayTypeAnnotation represents an array type annotation.
 // Example: int[] or string[][]
 type ArrayTypeAnnotation struct {
-	Token    lexer.Token  // the base type token
-	BaseType Expression   // the base type (can be an identifier or another type annotation)
+	Token    lexer.Token // the base type token
+	BaseType Expression  // the base type (can be an identifier or another type annotation)
 }
 
 func (ata *ArrayTypeAnnotation) expressionNode()      {}
@@ -530,7 +537,7 @@ type ArrayLiteral struct {
 	Elements []Expression // The array elements
 }
 
-func (al *ArrayLiteral) expressionNode() {}
+func (al *ArrayLiteral) expressionNode()      {}
 func (al *ArrayLiteral) TokenLiteral() string { return al.Token.Literal }
 func (al *ArrayLiteral) String() string {
 	var out bytes.Buffer
@@ -550,12 +557,12 @@ func (al *ArrayLiteral) String() string {
 // StructStatement represents a struct definition in Vibe.
 // Structs are user-defined types that contain a collection of fields.
 type StructStatement struct {
-	Token      lexer.Token       // The 'struct' token
-	Name       *Identifier       // Name of the struct
-	Fields     []Statement         // Fields defined in the struct
+	Token  lexer.Token // The 'struct' token
+	Name   *Identifier // Name of the struct
+	Fields []Statement // Fields defined in the struct
 }
 
-func (ss *StructStatement) statementNode() {}
+func (ss *StructStatement) statementNode()       {}
 func (ss *StructStatement) TokenLiteral() string { return ss.Token.Literal }
 func (ss *StructStatement) String() string {
 	var out bytes.Buffer
@@ -577,12 +584,12 @@ func (ss *StructStatement) String() string {
 // StructLiteral represents a struct instantiation expression.
 // It creates a new instance of a struct.
 type StructLiteral struct {
-	Token      lexer.Token                   // The struct type name token
-	Type       string                          // Name of the struct type
-	Fields     map[string]Expression           // Named field values
+	Token  lexer.Token           // The struct type name token
+	Type   string                // Name of the struct type
+	Fields map[string]Expression // Named field values
 }
 
-func (sl *StructLiteral) expressionNode() {}
+func (sl *StructLiteral) expressionNode()      {}
 func (sl *StructLiteral) TokenLiteral() string { return sl.Token.Literal }
 func (sl *StructLiteral) String() string {
 	var out bytes.Buffer
@@ -592,7 +599,7 @@ func (sl *StructLiteral) String() string {
 
 	pairs := []string{}
 	for key, value := range sl.Fields {
-		pairs = append(pairs, key + ": " + value.String())
+		pairs = append(pairs, key+": "+value.String())
 	}
 	out.WriteString(strings.Join(pairs, ", "))
 
@@ -634,7 +641,7 @@ type RangeExpression struct {
 	Exclusive bool        // Whether the range excludes the end value
 }
 
-func (re *RangeExpression) expressionNode() {}
+func (re *RangeExpression) expressionNode()      {}
 func (re *RangeExpression) TokenLiteral() string { return re.Token.Literal }
 func (re *RangeExpression) String() string {
 	var out bytes.Buffer
@@ -657,7 +664,7 @@ type RangeCallExpression struct {
 	Exclusive bool        // Whether the range excludes the end value (optional 3rd argument)
 }
 
-func (rc *RangeCallExpression) expressionNode() {}
+func (rc *RangeCallExpression) expressionNode()      {}
 func (rc *RangeCallExpression) TokenLiteral() string { return rc.Token.Literal }
 func (rc *RangeCallExpression) String() string {
 	var out bytes.Buffer
@@ -678,13 +685,13 @@ func (rc *RangeCallExpression) String() string {
 // String interpolation in Vibe allows embedding expressions within strings.
 // The expressions are evaluated at runtime and their values are inserted into the string.
 type StringInterpolationLiteral struct {
-	Token       lexer.Token    // The string token
-	Value       string         // The raw string value including ${...} placeholders
-	Parts       []string       // The string parts (before, between, and after expressions)
-	Expressions []Expression   // The parsed expressions within ${...} placeholders
+	Token       lexer.Token  // The string token
+	Value       string       // The raw string value including ${...} placeholders
+	Parts       []string     // The string parts (before, between, and after expressions)
+	Expressions []Expression // The parsed expressions within ${...} placeholders
 }
 
-func (sil *StringInterpolationLiteral) expressionNode() {}
+func (sil *StringInterpolationLiteral) expressionNode()      {}
 func (sil *StringInterpolationLiteral) TokenLiteral() string { return sil.Token.Literal }
 func (sil *StringInterpolationLiteral) String() string {
 	return "\"" + sil.Value + "\""
@@ -699,13 +706,13 @@ func (sil *StringInterpolationLiteral) String() string {
 //	  puts(i)
 //	end
 type ForLoop struct {
-	Token      lexer.Token // The 'for' token
-	Iterator   *Identifier // The variable that holds each element during iteration
-	Collection Expression  // The collection to iterate over (array, range, etc.)
+	Token      lexer.Token     // The 'for' token
+	Iterator   *Identifier     // The variable that holds each element during iteration
+	Collection Expression      // The collection to iterate over (array, range, etc.)
 	Body       *BlockStatement // The body of the loop
 }
 
-func (fl *ForLoop) statementNode() {}
+func (fl *ForLoop) statementNode()       {}
 func (fl *ForLoop) TokenLiteral() string { return fl.Token.Literal }
 func (fl *ForLoop) String() string {
 	var out bytes.Buffer
@@ -728,7 +735,7 @@ type DotExpression struct {
 	Field *Identifier // The field name after the dot (e.g., name)
 }
 
-func (de *DotExpression) expressionNode() {}
+func (de *DotExpression) expressionNode()      {}
 func (de *DotExpression) TokenLiteral() string { return de.Token.Literal }
 func (de *DotExpression) String() string {
 	var out bytes.Buffer
@@ -750,7 +757,7 @@ type IndexExpression struct {
 	Index Expression  // The index expression inside the brackets (e.g., 0)
 }
 
-func (ie *IndexExpression) expressionNode() {}
+func (ie *IndexExpression) expressionNode()      {}
 func (ie *IndexExpression) TokenLiteral() string { return ie.Token.Literal }
 func (ie *IndexExpression) String() string {
 	var out bytes.Buffer
@@ -764,6 +771,25 @@ func (ie *IndexExpression) String() string {
 	return out.String()
 }
 
+// PrefixExpression represents a prefix expression: <operator> <right>
+// Examples: -5, !true
+type PrefixExpression struct {
+	Token    lexer.Token // The prefix token, e.g. !
+	Operator string      // The operator string, e.g. - or !
+	Right    Expression  // The operand expression
+}
+
+func (pe *PrefixExpression) expressionNode()      {}
+func (pe *PrefixExpression) TokenLiteral() string { return pe.Token.Literal }
+func (pe *PrefixExpression) String() string {
+	var out bytes.Buffer
+	out.WriteString("(")
+	out.WriteString(pe.Operator)
+	out.WriteString(pe.Right.String())
+	out.WriteString(")")
+	return out.String()
+}
+
 // InfixExpression represents an infix expression: <left> <operator> <right>
 // Examples: a + b, a == b, a < b
 type InfixExpression struct {
@@ -773,7 +799,7 @@ type InfixExpression struct {
 	Right    Expression  // The right-hand side expression
 }
 
-func (ie *InfixExpression) expressionNode() {}
+func (ie *InfixExpression) expressionNode()      {}
 func (ie *InfixExpression) TokenLiteral() string { return ie.Token.Literal }
 func (ie *InfixExpression) String() string {
 	var out bytes.Buffer
@@ -785,4 +811,339 @@ func (ie *InfixExpression) String() string {
 	out.WriteString(")")
 
 	return out.String()
+}
+
+// WhileLoop represents a while loop: while <condition> ... end
+type WhileLoop struct {
+	Token     lexer.Token
+	Condition Expression
+	Body      *BlockStatement
+}
+
+func (wl *WhileLoop) statementNode()       {}
+func (wl *WhileLoop) TokenLiteral() string { return wl.Token.Literal }
+func (wl *WhileLoop) String() string {
+	var out bytes.Buffer
+	out.WriteString("while ")
+	out.WriteString(wl.Condition.String())
+	out.WriteString(" ")
+	out.WriteString(wl.Body.String())
+	return out.String()
+}
+
+// BreakStatement represents a break statement inside a loop.
+type BreakStatement struct {
+	Token lexer.Token
+}
+
+func (bs *BreakStatement) statementNode()       {}
+func (bs *BreakStatement) TokenLiteral() string { return bs.Token.Literal }
+func (bs *BreakStatement) String() string       { return "break" }
+
+// ContinueStatement represents a continue statement inside a loop.
+type ContinueStatement struct {
+	Token lexer.Token
+}
+
+func (cs *ContinueStatement) statementNode()       {}
+func (cs *ContinueStatement) TokenLiteral() string { return cs.Token.Literal }
+func (cs *ContinueStatement) String() string       { return "continue" }
+
+// HashLiteral represents a hash map literal: {key: value, ...}
+type HashLiteral struct {
+	Token lexer.Token
+	Pairs map[Expression]Expression
+}
+
+func (hl *HashLiteral) expressionNode()      {}
+func (hl *HashLiteral) TokenLiteral() string { return hl.Token.Literal }
+func (hl *HashLiteral) String() string {
+	var out bytes.Buffer
+	pairs := []string{}
+	for key, value := range hl.Pairs {
+		pairs = append(pairs, key.String()+": "+value.String())
+	}
+	out.WriteString("{")
+	out.WriteString(strings.Join(pairs, ", "))
+	out.WriteString("}")
+	return out.String()
+}
+
+// ImportStatement represents: import "path/to/file.vb"
+type ImportStatement struct {
+	Token lexer.Token
+	Path  string
+}
+
+func (is *ImportStatement) statementNode()       {}
+func (is *ImportStatement) TokenLiteral() string { return is.Token.Literal }
+func (is *ImportStatement) String() string       { return "import \"" + is.Path + "\"" }
+
+// TryExpression represents: try ... catch e ... finally ... end
+type TryExpression struct {
+	Token       lexer.Token
+	Body        *BlockStatement
+	CatchVar    *Identifier
+	CatchBody   *BlockStatement
+	FinallyBody *BlockStatement // optional finally block
+}
+
+func (te *TryExpression) expressionNode()      {}
+func (te *TryExpression) TokenLiteral() string { return te.Token.Literal }
+func (te *TryExpression) String() string {
+	var out bytes.Buffer
+	out.WriteString("try ")
+	out.WriteString(te.Body.String())
+	out.WriteString(" catch ")
+	if te.CatchVar != nil {
+		out.WriteString(te.CatchVar.String())
+		out.WriteString(" ")
+	}
+	out.WriteString(te.CatchBody.String())
+	return out.String()
+}
+
+// ThrowStatement represents: throw <expression>
+type ThrowStatement struct {
+	Token lexer.Token
+	Value Expression
+}
+
+func (ts *ThrowStatement) statementNode()       {}
+func (ts *ThrowStatement) TokenLiteral() string { return ts.Token.Literal }
+func (ts *ThrowStatement) String() string       { return "throw " + ts.Value.String() }
+
+// IndexAssignment represents: arr[i] = value
+type IndexAssignment struct {
+	Token lexer.Token
+	Left  Expression
+	Index Expression
+	Value Expression
+}
+
+func (ia *IndexAssignment) expressionNode()      {}
+func (ia *IndexAssignment) TokenLiteral() string { return ia.Token.Literal }
+func (ia *IndexAssignment) String() string {
+	return ia.Left.String() + "[" + ia.Index.String() + "] = " + ia.Value.String()
+}
+
+// DotAssignment represents: obj.field = value
+type DotAssignment struct {
+	Token lexer.Token
+	Left  Expression
+	Field string
+	Value Expression
+}
+
+// TernaryExpression represents: condition ? consequence : alternative
+type TernaryExpression struct {
+	Token       lexer.Token // The '?' token
+	Condition   Expression
+	Consequence Expression
+	Alternative Expression
+}
+
+func (te *TernaryExpression) expressionNode()      {}
+func (te *TernaryExpression) TokenLiteral() string { return te.Token.Literal }
+func (te *TernaryExpression) String() string {
+	return "(" + te.Condition.String() + " ? " + te.Consequence.String() + " : " + te.Alternative.String() + ")"
+}
+
+// UnlessExpression represents: unless condition ... end
+type UnlessExpression struct {
+	Token       lexer.Token
+	Condition   Expression
+	Consequence *BlockStatement
+	Alternative *BlockStatement // optional else
+}
+
+func (ue *UnlessExpression) expressionNode()      {}
+func (ue *UnlessExpression) TokenLiteral() string { return ue.Token.Literal }
+func (ue *UnlessExpression) String() string {
+	var out bytes.Buffer
+	out.WriteString("unless ")
+	out.WriteString(ue.Condition.String())
+	out.WriteString("\n")
+	out.WriteString(ue.Consequence.String())
+	if ue.Alternative != nil {
+		out.WriteString(" else\n")
+		out.WriteString(ue.Alternative.String())
+	}
+	out.WriteString(" end")
+	return out.String()
+}
+
+// UntilLoop represents: until condition ... end
+type UntilLoop struct {
+	Token     lexer.Token
+	Condition Expression
+	Body      *BlockStatement
+}
+
+func (ul *UntilLoop) statementNode()       {}
+func (ul *UntilLoop) TokenLiteral() string { return ul.Token.Literal }
+func (ul *UntilLoop) String() string {
+	var out bytes.Buffer
+	out.WriteString("until ")
+	out.WriteString(ul.Condition.String())
+	out.WriteString(" ")
+	out.WriteString(ul.Body.String())
+	return out.String()
+}
+
+// CaseExpression represents: case value when ... else ... end
+type CaseExpression struct {
+	Token   lexer.Token
+	Subject Expression      // The value being matched
+	Whens   []*WhenClause   // List of when clauses
+	Default *BlockStatement // Optional else block
+}
+
+func (ce *CaseExpression) expressionNode()      {}
+func (ce *CaseExpression) TokenLiteral() string { return ce.Token.Literal }
+func (ce *CaseExpression) String() string {
+	var out bytes.Buffer
+	out.WriteString("case ")
+	out.WriteString(ce.Subject.String())
+	for _, w := range ce.Whens {
+		out.WriteString("\n")
+		out.WriteString(w.String())
+	}
+	if ce.Default != nil {
+		out.WriteString("\nelse\n")
+		out.WriteString(ce.Default.String())
+	}
+	out.WriteString("\nend")
+	return out.String()
+}
+
+// WhenClause represents a single when clause in a case expression
+type WhenClause struct {
+	Token  lexer.Token
+	Values []Expression // One or more match values
+	Body   *BlockStatement
+}
+
+func (wc *WhenClause) expressionNode()      {}
+func (wc *WhenClause) TokenLiteral() string { return wc.Token.Literal }
+func (wc *WhenClause) String() string {
+	var out bytes.Buffer
+	out.WriteString("when ")
+	vals := []string{}
+	for _, v := range wc.Values {
+		vals = append(vals, v.String())
+	}
+	out.WriteString(strings.Join(vals, ", "))
+	out.WriteString("\n")
+	out.WriteString(wc.Body.String())
+	return out.String()
+}
+
+// ArrowFunction represents: -> (params) { body }
+type ArrowFunction struct {
+	Token      lexer.Token
+	Parameters []*Identifier
+	Body       *BlockStatement
+}
+
+func (af *ArrowFunction) expressionNode()      {}
+func (af *ArrowFunction) TokenLiteral() string { return af.Token.Literal }
+func (af *ArrowFunction) String() string {
+	var out bytes.Buffer
+	params := []string{}
+	for _, p := range af.Parameters {
+		params = append(params, p.String())
+	}
+	out.WriteString("-> (")
+	out.WriteString(strings.Join(params, ", "))
+	out.WriteString(") { ")
+	out.WriteString(af.Body.String())
+	out.WriteString(" }")
+	return out.String()
+}
+
+// PipeExpression represents: expr |> func or expr |> func(args)
+type PipeExpression struct {
+	Token lexer.Token
+	Left  Expression
+	Right Expression // CallExpression or Identifier
+}
+
+func (pe *PipeExpression) expressionNode()      {}
+func (pe *PipeExpression) TokenLiteral() string { return pe.Token.Literal }
+func (pe *PipeExpression) String() string {
+	return "(" + pe.Left.String() + " |> " + pe.Right.String() + ")"
+}
+
+// DestructureAssignment represents: a, b, c = [1, 2, 3]
+type DestructureAssignment struct {
+	Token lexer.Token
+	Names []*Identifier
+	Value Expression
+}
+
+func (da *DestructureAssignment) expressionNode()      {}
+func (da *DestructureAssignment) TokenLiteral() string { return da.Token.Literal }
+func (da *DestructureAssignment) String() string {
+	names := []string{}
+	for _, n := range da.Names {
+		names = append(names, n.Value)
+	}
+	return strings.Join(names, ", ") + " = " + da.Value.String()
+}
+
+// UnionTypeAnnotation represents a union type: string | int | nil
+type UnionTypeAnnotation struct {
+	Token lexer.Token
+	Types []Expression // The types in the union
+}
+
+func (uta *UnionTypeAnnotation) expressionNode()      {}
+func (uta *UnionTypeAnnotation) TokenLiteral() string { return uta.Token.Literal }
+func (uta *UnionTypeAnnotation) String() string {
+	types := []string{}
+	for _, t := range uta.Types {
+		types = append(types, t.String())
+	}
+	return strings.Join(types, " | ")
+}
+
+// EnumStatement represents an enum definition: enum Color Red Green Blue end
+type EnumStatement struct {
+	Token  lexer.Token
+	Name   *Identifier
+	Values []string
+}
+
+func (es *EnumStatement) statementNode()       {}
+func (es *EnumStatement) TokenLiteral() string { return es.Token.Literal }
+func (es *EnumStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("enum ")
+	out.WriteString(es.Name.Value)
+	out.WriteString("\n")
+	for _, v := range es.Values {
+		out.WriteString("  " + v + "\n")
+	}
+	out.WriteString("end")
+	return out.String()
+}
+
+// InExpression represents: value in collection
+type InExpression struct {
+	Token lexer.Token
+	Left  Expression // the value to check
+	Right Expression // the collection
+}
+
+func (ie *InExpression) expressionNode()      {}
+func (ie *InExpression) TokenLiteral() string { return ie.Token.Literal }
+func (ie *InExpression) String() string {
+	return "(" + ie.Left.String() + " in " + ie.Right.String() + ")"
+}
+
+func (da *DotAssignment) expressionNode()      {}
+func (da *DotAssignment) TokenLiteral() string { return da.Token.Literal }
+func (da *DotAssignment) String() string {
+	return da.Left.String() + "." + da.Field + " = " + da.Value.String()
 }

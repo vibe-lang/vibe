@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 
+	"github.com/chzyer/readline"
 	"github.com/spf13/cobra"
 	"github.com/vibe-lang/vibe/pkg/interpreter"
 	"github.com/vibe-lang/vibe/pkg/lexer"
@@ -17,16 +20,19 @@ import (
 // Usage examples:
 //   - Run a Vibe script: vibe run script.vb
 //   - Start the Vibe REPL: vibe repl
+//
+// Version is set at build time via -ldflags
+var Version = "0.2.0"
+
 func main() {
-	// Define the root command for the Vibe CLI
 	var rootCmd = &cobra.Command{
-		Use:   "vibe",
-		Short: "Vibe is a Ruby-like programming language with type support",
+		Use:     "vibe",
+		Short:   "Vibe is a Ruby-like programming language with type support",
+		Version: Version,
 		Long: `Vibe is an interpreted programming language similar to Ruby but with type support.
 It aims to provide a pleasant and ergonomic developer experience while maintaining strong type safety.`,
 	}
 
-	// Define the 'run' subcommand for executing Vibe scripts
 	var runCmd = &cobra.Command{
 		Use:   "run [file]",
 		Short: "Run a Vibe script",
@@ -36,21 +42,18 @@ It aims to provide a pleasant and ergonomic developer experience while maintaini
 		},
 	}
 
-	// Define the 'repl' subcommand for interactive use
 	var replCmd = &cobra.Command{
 		Use:   "repl",
 		Short: "Start Vibe REPL (interactive shell)",
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Println("Starting Vibe REPL...")
-			fmt.Println("Not implemented yet. Coming soon!")
+			startRepl()
 		},
 	}
 
-	// Add subcommands to the root command
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(replCmd)
 
-	// Execute the command tree
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -114,4 +117,70 @@ func printParserErrors(errors []string) {
 	for _, msg := range errors {
 		fmt.Printf("\t%s\n", msg)
 	}
+}
+
+// evaluateAndPrint evaluates a Vibe expression and prints the result.
+func evaluateAndPrint(i *interpreter.Interpreter, input string) {
+	l := lexer.New(input)
+	p := parser.New(l)
+	program := p.ParseProgram()
+
+	if len(p.Errors()) != 0 {
+		printParserErrors(p.Errors())
+		return
+	}
+
+	result := i.Eval(program)
+	if result != nil && result.Type() != interpreter.NIL_OBJ {
+		fmt.Println("Result:", result.Inspect())
+	}
+}
+
+// startRepl starts the interactive REPL (Read-Eval-Print Loop).
+// It reads user input with readline support (history, arrow keys).
+func startRepl() {
+	i := interpreter.New()
+
+	// Store history in ~/.vibe_history
+	homeDir, _ := os.UserHomeDir()
+	historyFile := filepath.Join(homeDir, ".vibe_history")
+
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:            "vibe> ",
+		HistoryFile:       historyFile,
+		HistoryLimit:      1000,
+		InterruptPrompt:   "^C",
+		EOFPrompt:         "exit",
+		HistorySearchFold: true,
+	})
+	if err != nil {
+		fmt.Printf("Error initializing REPL: %s\n", err)
+		os.Exit(1)
+	}
+	defer rl.Close()
+
+	fmt.Println("Vibe REPL (interactive shell)")
+	fmt.Println("Type expressions to evaluate them")
+	fmt.Println("Press Ctrl+D to exit")
+
+	for {
+		line, err := rl.Readline()
+		if err == readline.ErrInterrupt {
+			continue
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			break
+		}
+
+		if line == "" {
+			continue
+		}
+
+		evaluateAndPrint(i, line)
+	}
+
+	fmt.Println("\nGoodbye!")
 }

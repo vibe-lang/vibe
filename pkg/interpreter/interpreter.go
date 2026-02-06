@@ -14,8 +14,8 @@ import (
 // inspect or manipulate the value. This interface defines the common
 // behavior of all objects in the language.
 type Object interface {
-	Type() ObjectType    // Returns the type of the object
-	Inspect() string     // Returns a string representation of the object
+	Type() ObjectType // Returns the type of the object
+	Inspect() string  // Returns a string representation of the object
 }
 
 // ObjectType is a string identifier for the type of an object.
@@ -27,20 +27,21 @@ type ObjectType string
 // These constants are used for type checking and type representation
 // throughout the interpreter.
 const (
-	INTEGER_OBJ      = "INTEGER"      // Integer values (e.g., 42)
-	FLOAT_OBJ        = "FLOAT"        // Floating-point values (e.g., 3.14)
-	BOOLEAN_OBJ      = "BOOLEAN"      // Boolean values (true, false)
-	STRING_OBJ       = "STRING"       // String values (e.g., "hello")
-	NIL_OBJ          = "NIL"          // Nil value (absence of a value)
-	RETURN_VALUE_OBJ = "RETURN_VALUE" // Wrapper for return values
-	ERROR_OBJ        = "ERROR"        // Error values
-	FUNCTION_OBJ     = "FUNCTION"     // Function values
-	CLASS_OBJ        = "CLASS"        // Class definitions
-	INSTANCE_OBJ     = "INSTANCE"     // Class instances (objects)
-	ARRAY_OBJ        = "ARRAY"        // Array values
-	STRUCT_OBJ       = "STRUCT"       // Struct type definitions
+	INTEGER_OBJ         = "INTEGER"         // Integer values (e.g., 42)
+	FLOAT_OBJ           = "FLOAT"           // Floating-point values (e.g., 3.14)
+	BOOLEAN_OBJ         = "BOOLEAN"         // Boolean values (true, false)
+	STRING_OBJ          = "STRING"          // String values (e.g., "hello")
+	NIL_OBJ             = "NIL"             // Nil value (absence of a value)
+	RETURN_VALUE_OBJ    = "RETURN_VALUE"    // Wrapper for return values
+	ERROR_OBJ           = "ERROR"           // Error values
+	FUNCTION_OBJ        = "FUNCTION"        // Function values
+	CLASS_OBJ           = "CLASS"           // Class definitions
+	INSTANCE_OBJ        = "INSTANCE"        // Class instances (objects)
+	ARRAY_OBJ           = "ARRAY"           // Array values
+	STRUCT_OBJ          = "STRUCT"          // Struct type definitions
 	STRUCT_INSTANCE_OBJ = "STRUCT_INSTANCE" // Struct instances
-	COMPOUND_OBJ     = "COMPOUND"     // Compound values (tuples)
+	COMPOUND_OBJ        = "COMPOUND"        // Compound values (tuples)
+	BUILTIN_OBJ         = "BUILTIN"         // Builtin functions
 )
 
 // Integer represents an integer value in Vibe.
@@ -53,7 +54,7 @@ type Integer struct {
 func (i *Integer) Type() ObjectType { return INTEGER_OBJ }
 
 // Inspect returns a string representation of the Integer.
-func (i *Integer) Inspect() string  { return fmt.Sprintf("%d", i.Value) }
+func (i *Integer) Inspect() string { return fmt.Sprintf("%d", i.Value) }
 
 // Float represents a floating-point value in Vibe.
 // It wraps a Go float64 value and implements the Object interface.
@@ -65,7 +66,7 @@ type Float struct {
 func (f *Float) Type() ObjectType { return FLOAT_OBJ }
 
 // Inspect returns a string representation of the Float.
-func (f *Float) Inspect() string  { return fmt.Sprintf("%g", f.Value) }
+func (f *Float) Inspect() string { return fmt.Sprintf("%g", f.Value) }
 
 // Boolean represents a boolean value in Vibe.
 // It wraps a Go bool value and implements the Object interface.
@@ -77,7 +78,7 @@ type Boolean struct {
 func (b *Boolean) Type() ObjectType { return BOOLEAN_OBJ }
 
 // Inspect returns a string representation of the Boolean.
-func (b *Boolean) Inspect() string  { return fmt.Sprintf("%t", b.Value) }
+func (b *Boolean) Inspect() string { return fmt.Sprintf("%t", b.Value) }
 
 // String represents a string value in Vibe.
 // It wraps a Go string value and implements the Object interface.
@@ -89,7 +90,7 @@ type String struct {
 func (s *String) Type() ObjectType { return STRING_OBJ }
 
 // Inspect returns the string value itself.
-func (s *String) Inspect() string  { return s.Value }
+func (s *String) Inspect() string { return s.Value }
 
 // Nil represents a nil value in Vibe.
 // It is similar to null or nil in other languages and represents
@@ -100,7 +101,7 @@ type Nil struct{}
 func (n *Nil) Type() ObjectType { return NIL_OBJ }
 
 // Inspect returns the string "nil".
-func (n *Nil) Inspect() string  { return "nil" }
+func (n *Nil) Inspect() string { return "nil" }
 
 // ReturnValue is a wrapper object for return values in Vibe.
 // It is used to propagate return values up the call stack until
@@ -113,7 +114,7 @@ type ReturnValue struct {
 func (rv *ReturnValue) Type() ObjectType { return RETURN_VALUE_OBJ }
 
 // Inspect delegates to the wrapped value's Inspect method.
-func (rv *ReturnValue) Inspect() string  { return rv.Value.Inspect() }
+func (rv *ReturnValue) Inspect() string { return rv.Value.Inspect() }
 
 // Error represents a runtime error in Vibe.
 // It includes information about the error message and position
@@ -131,6 +132,17 @@ func (e *Error) Type() ObjectType { return ERROR_OBJ }
 func (e *Error) Inspect() string {
 	return fmt.Sprintf("Error at [%d:%d]: %s", e.Line, e.Column, e.Message)
 }
+
+// Builtin represents a builtin function in Vibe.
+type Builtin struct {
+	Fn func(args ...Object) Object
+}
+
+// Type returns the type of the Builtin object.
+func (b *Builtin) Type() ObjectType { return BUILTIN_OBJ }
+
+// Inspect returns a string representation of the Builtin.
+func (b *Builtin) Inspect() string { return "builtin function" }
 
 // Environment represents a scope for variables and bindings in Vibe.
 // Environments form a chain, where each environment can have an outer
@@ -176,21 +188,89 @@ func (e *Environment) Set(name string, val Object) Object {
 	return val
 }
 
+// Keys returns all variable names in the current environment scope.
+func (e *Environment) Keys() []string {
+	keys := make([]string, 0, len(e.store))
+	for k := range e.store {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // Interpreter evaluates AST nodes to produce values during program execution.
 type Interpreter struct {
-	env *Environment
+	env       *Environment
 	lastError Object // Store the last error encountered
 }
 
 // New creates a new Interpreter with a fresh environment.
 func New() *Interpreter {
-	return &Interpreter{
+	i := &Interpreter{
 		env: NewEnvironment(),
 	}
+
+	registerBuiltins(i.env)
+
+	return i
+}
+
+// applyFunction applies a function to the given arguments.
+func (i *Interpreter) applyFunction(fn Object, args []Object) Object {
+	switch fn := fn.(type) {
+	case *Builtin:
+		return fn.Fn(args...)
+	case *Function:
+		return i.applyUserFunction(fn, args)
+	case *ClassObject:
+		return i.callClassConstructor(fn, args)
+	default:
+		return newError("not a function: %s", fn.Type())
+	}
+}
+
+// applyUserFunction applies a user-defined function to the given arguments.
+func (i *Interpreter) applyUserFunction(fn *Function, args []Object) Object {
+	// Create a new enclosed environment for the function
+	extendedEnv := NewEnclosedEnvironment(fn.Env)
+
+	// Bind parameters to arguments, using defaults for missing args
+	for paramIdx, param := range fn.Parameters {
+		if paramIdx < len(args) {
+			extendedEnv.Set(param.Value, args[paramIdx])
+		} else if paramIdx < len(fn.Defaults) && fn.Defaults[paramIdx] != nil {
+			// Use default value
+			oldEnv := i.env
+			i.env = extendedEnv
+			defaultVal := i.eval(fn.Defaults[paramIdx])
+			i.env = oldEnv
+			if isError(defaultVal) {
+				return defaultVal
+			}
+			extendedEnv.Set(param.Value, defaultVal)
+		}
+	}
+
+	// Save the current environment and switch to the function environment
+	oldEnv := i.env
+	i.env = extendedEnv
+
+	// Evaluate the function body
+	result := i.eval(fn.Body)
+
+	// Restore the environment
+	i.env = oldEnv
+
+	// Unwrap return values
+	if returnValue, ok := result.(*ReturnValue); ok {
+		return returnValue.Value
+	}
+
+	return result
 }
 
 // Eval evaluates an AST node and returns the resulting object.
 func (i *Interpreter) Eval(node ast.Node) Object {
+	builtinInterpreter = i
 	result := i.eval(node)
 
 	// Store error objects for later retrieval
@@ -224,6 +304,13 @@ func (i *Interpreter) eval(node ast.Node) Object {
 	case *ast.ForLoop:
 		return i.evalForLoop(node)
 	case *ast.Identifier:
+		// Handle 'self' as a special identifier
+		if node.Value == "self" {
+			if val, ok := i.env.Get("self"); ok {
+				return val
+			}
+			return newError("'self' used outside of a class method")
+		}
 		return i.evalIdentifier(node)
 	case *ast.TypedIdentifier:
 		// For TypedIdentifier, we just evaluate the underlying identifier
@@ -233,6 +320,75 @@ func (i *Interpreter) eval(node ast.Node) Object {
 		return i.evalAssignmentExpression(node)
 	case *ast.InfixExpression:
 		return i.evalInfixExpression(node)
+	case *ast.CallExpression:
+		// Handle method-style calls: obj.method(args) -> method(obj, args)
+		// When the function is a DotExpression, evaluate the left side first.
+		if dotExpr, ok := node.Function.(*ast.DotExpression); ok {
+			left := i.eval(dotExpr.Left)
+			if isError(left) {
+				return left
+			}
+			methodName := dotExpr.Field.Value
+
+			// If left is a class instance, look up the method on the class
+			if classInst, ok := left.(*ClassInstance); ok {
+				// Check instance fields first (may be a function)
+				if field, ok := classInst.Fields[methodName]; ok {
+					if fn, ok := field.(*Function); ok {
+						args := i.evalExpressions(node.Arguments)
+						if len(args) == 1 && isError(args[0]) {
+							return args[0]
+						}
+						return i.callMethodOnInstance(classInst, fn, args)
+					}
+					// Field exists but not a function — error
+					return newError("'%s' is not a method", methodName)
+				}
+				// Look up method on the class
+				if method, ok := classInst.Class.GetMethod(methodName); ok {
+					args := i.evalExpressions(node.Arguments)
+					if len(args) == 1 && isError(args[0]) {
+						return args[0]
+					}
+					return i.callMethodOnInstance(classInst, method, args)
+				}
+				// Fall through to builtin methods
+			}
+
+			// If left is a struct instance, try field access (may return a function)
+			if structInst, ok := left.(*StructInstance); ok {
+				if field, ok := structInst.Fields[methodName]; ok {
+					args := i.evalExpressions(node.Arguments)
+					if len(args) == 1 && isError(args[0]) {
+						return args[0]
+					}
+					return i.applyFunction(field, args)
+				}
+			}
+			// Not a struct or field not found — treat as method call
+			fn, ok := i.env.Get(methodName)
+			if !ok {
+				return newError("undefined method: %s", methodName)
+			}
+			args := i.evalExpressions(node.Arguments)
+			if len(args) == 1 && isError(args[0]) {
+				return args[0]
+			}
+			// Prepend the receiver (left) as the first argument
+			allArgs := make([]Object, 0, len(args)+1)
+			allArgs = append(allArgs, left)
+			allArgs = append(allArgs, args...)
+			return i.applyFunction(fn, allArgs)
+		}
+		function := i.eval(node.Function)
+		if isError(function) {
+			return function
+		}
+		args := i.evalExpressions(node.Arguments)
+		if len(args) == 1 && isError(args[0]) {
+			return args[0]
+		}
+		return i.applyFunction(function, args)
 	case *ast.IntegerLiteral:
 		return &Integer{Value: node.Value}
 	case *ast.FloatLiteral:
@@ -259,10 +415,60 @@ func (i *Interpreter) eval(node ast.Node) Object {
 			return elements[0]
 		}
 		return &Compound{Elements: elements}
+	case *ast.PrefixExpression:
+		return i.evalPrefixExpression(node)
+	case *ast.IfExpression:
+		return i.evalIfExpression(node)
+	case *ast.StringInterpolationLiteral:
+		return i.evalStringInterpolation(node)
+	case *ast.RangeExpression:
+		return i.evalRangeExpression(node)
+	case *ast.RangeCallExpression:
+		return i.evalRangeCallExpression(node)
+	case *ast.FunctionLiteral:
+		return i.evalFunctionLiteral(node)
+	case *ast.ClassLiteral:
+		return i.evalClassLiteral(node)
+	case *ast.EnumStatement:
+		return i.evalEnumStatement(node)
 	case *ast.StructStatement:
 		return i.evalStructStatement(node)
 	case *ast.StructLiteral:
 		return i.evalStructLiteral(node)
+	case *ast.WhileLoop:
+		return i.evalWhileLoop(node)
+	case *ast.BreakStatement:
+		return &BreakSignal{}
+	case *ast.ContinueStatement:
+		return &ContinueSignal{}
+	case *ast.HashLiteral:
+		return i.evalHashLiteral(node)
+	case *ast.IndexAssignment:
+		return i.evalIndexAssignment(node)
+	case *ast.DotAssignment:
+		return i.evalDotAssignment(node)
+	case *ast.ImportStatement:
+		return i.evalImportStatement(node)
+	case *ast.TryExpression:
+		return i.evalTryExpression(node)
+	case *ast.ThrowStatement:
+		return i.evalThrowStatement(node)
+	case *ast.TernaryExpression:
+		return i.evalTernaryExpression(node)
+	case *ast.UnlessExpression:
+		return i.evalUnlessExpression(node)
+	case *ast.UntilLoop:
+		return i.evalUntilLoop(node)
+	case *ast.CaseExpression:
+		return i.evalCaseExpression(node)
+	case *ast.ArrowFunction:
+		return i.evalArrowFunction(node)
+	case *ast.PipeExpression:
+		return i.evalPipeExpression(node)
+	case *ast.InExpression:
+		return i.evalInExpression(node)
+	case *ast.DestructureAssignment:
+		return i.evalDestructureAssignment(node)
 	default:
 		return newError("unknown node type: %T", node)
 	}
@@ -299,7 +505,7 @@ func (i *Interpreter) evalBlockStatement(block *ast.BlockStatement) Object {
 
 		if result != nil {
 			rt := result.Type()
-			if rt == RETURN_VALUE_OBJ || rt == ERROR_OBJ {
+			if rt == RETURN_VALUE_OBJ || rt == ERROR_OBJ || rt == BREAK_OBJ || rt == CONTINUE_OBJ || rt == THROW_OBJ {
 				return result
 			}
 		}
@@ -361,65 +567,64 @@ func (i *Interpreter) evalAssignmentExpression(node *ast.AssignmentExpression) O
 
 	// If there's a type annotation, validate the type
 	if node.TypeAnnotation != nil {
-		// Get the type name from the annotation
-		var typeName string
+		// Handle union types
+		if unionType, ok := node.TypeAnnotation.(*ast.UnionTypeAnnotation); ok {
+			if !i.validateUnionType(unionType, val) {
+				types := []string{}
+				for _, t := range unionType.Types {
+					types = append(types, t.String())
+				}
+				return newError("type mismatch: expected %s, got %s", strings.Join(types, " | "), val.Type())
+			}
+		} else {
+			// Get the type name from the annotation
+			var typeName string
 
-		switch typeExpr := node.TypeAnnotation.(type) {
-		case *ast.Identifier:
-			// Simple type like 'int' or 'string'
-			typeName = typeExpr.Value
-		case *ast.ArrayTypeAnnotation:
-			// Array type like 'int[]'
-			baseType := ""
-
-			// Extract the base type name
-			if ident, ok := typeExpr.BaseType.(*ast.Identifier); ok {
-				baseType = ident.Value
-			} else if arrayType, ok := typeExpr.BaseType.(*ast.ArrayTypeAnnotation); ok {
-				// Nested array type like 'int[][]'
-				if baseIdent, ok := arrayType.BaseType.(*ast.Identifier); ok {
-					baseType = baseIdent.Value + "[]"
-				} else if compoundType, ok := arrayType.BaseType.(*ast.CompoundTypeAnnotation); ok {
-					// Compound array type like '[int, string][]'
+			switch typeExpr := node.TypeAnnotation.(type) {
+			case *ast.Identifier:
+				typeName = typeExpr.Value
+			case *ast.ArrayTypeAnnotation:
+				baseType := ""
+				if ident, ok := typeExpr.BaseType.(*ast.Identifier); ok {
+					baseType = ident.Value
+				} else if arrayType, ok := typeExpr.BaseType.(*ast.ArrayTypeAnnotation); ok {
+					if baseIdent, ok := arrayType.BaseType.(*ast.Identifier); ok {
+						baseType = baseIdent.Value + "[]"
+					} else if compoundType, ok := arrayType.BaseType.(*ast.CompoundTypeAnnotation); ok {
+						baseType = compoundType.String()
+					}
+				} else if compoundType, ok := typeExpr.BaseType.(*ast.CompoundTypeAnnotation); ok {
 					baseType = compoundType.String()
 				}
-			} else if compoundType, ok := typeExpr.BaseType.(*ast.CompoundTypeAnnotation); ok {
-				// Compound array type like '[int, string][]'
-				baseType = compoundType.String()
+				typeName = baseType + "[]"
+			case *ast.CompoundTypeAnnotation:
+				typeName = typeExpr.String()
 			}
 
-			typeName = baseType + "[]"
-		case *ast.CompoundTypeAnnotation:
-			// Compound type like '[int, string]'
-			typeName = typeExpr.String()
-		}
-
-		// Validate the type
-		switch typeName {
-		case "int":
-			if _, ok := val.(*Integer); !ok {
-				return newError("type mismatch: expected int, got %s", val.Type())
-			}
-		case "float":
-			if _, ok := val.(*Float); !ok {
-				// Allow integers in float context
+			switch typeName {
+			case "int":
 				if _, ok := val.(*Integer); !ok {
-					return newError("type mismatch: expected float, got %s", val.Type())
+					return newError("type mismatch: expected int, got %s", val.Type())
 				}
-			}
-		case "string":
-			if _, ok := val.(*String); !ok {
-				return newError("type mismatch: expected string, got %s", val.Type())
-			}
-		case "boolean":
-			if _, ok := val.(*Boolean); !ok {
-				return newError("type mismatch: expected boolean, got %s", val.Type())
-			}
-		default:
-			// Check if it's an array type
-			if strings.HasSuffix(typeName, "[]") {
-				if err := i.validateArrayType(typeName, val); err != nil {
-					return err
+			case "float":
+				if _, ok := val.(*Float); !ok {
+					if _, ok := val.(*Integer); !ok {
+						return newError("type mismatch: expected float, got %s", val.Type())
+					}
+				}
+			case "string":
+				if _, ok := val.(*String); !ok {
+					return newError("type mismatch: expected string, got %s", val.Type())
+				}
+			case "boolean":
+				if _, ok := val.(*Boolean); !ok {
+					return newError("type mismatch: expected boolean, got %s", val.Type())
+				}
+			default:
+				if strings.HasSuffix(typeName, "[]") {
+					if err := i.validateArrayType(typeName, val); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -566,7 +771,7 @@ func (i *Interpreter) validateArrayType(typeName string, val Object) Object {
 // Returns a slice of type names
 func parseCompoundType(compoundType string) []string {
 	// Remove brackets
-	inner := compoundType[1:len(compoundType)-1]
+	inner := compoundType[1 : len(compoundType)-1]
 
 	// Split by comma
 	parts := strings.Split(inner, ",")
@@ -675,8 +880,8 @@ func (i *Interpreter) GetEnvironment() *Environment {
 // Struct represents a struct definition in Vibe.
 // It stores the structure of a user-defined type.
 type Struct struct {
-	Name        string
-	Fields      map[string]Object
+	Name          string
+	Fields        map[string]Object
 	DefaultValues map[string]Object
 }
 
@@ -697,7 +902,7 @@ func (s *Struct) Inspect() string {
 
 	fields := []string{}
 	for _, name := range fieldNames {
-		fields = append(fields, name + ": " + s.DefaultValues[name].Inspect())
+		fields = append(fields, name+": "+s.DefaultValues[name].Inspect())
 	}
 	out.WriteString(strings.Join(fields, ", "))
 
@@ -709,8 +914,8 @@ func (s *Struct) Inspect() string {
 // StructInstance represents an instance of a struct.
 // It contains the actual field values for a specific struct instance.
 type StructInstance struct {
-	Struct      *Struct
-	Fields      map[string]Object
+	Struct *Struct
+	Fields map[string]Object
 }
 
 func (si *StructInstance) Type() ObjectType { return STRUCT_INSTANCE_OBJ }
@@ -729,7 +934,7 @@ func (si *StructInstance) Inspect() string {
 
 	fields := []string{}
 	for _, name := range fieldNames {
-		fields = append(fields, name + ": " + si.Fields[name].Inspect())
+		fields = append(fields, name+": "+si.Fields[name].Inspect())
 	}
 	out.WriteString(strings.Join(fields, ", "))
 
@@ -741,7 +946,7 @@ func (si *StructInstance) Inspect() string {
 // Compound represents a compound value (tuple) in Vibe.
 // It contains heterogeneous values in a fixed structure.
 type Compound struct {
-	Elements    []Object
+	Elements     []Object
 	ElementTypes []string
 }
 
@@ -767,8 +972,8 @@ func (c *Compound) Inspect() string {
 func (i *Interpreter) evalStructStatement(node *ast.StructStatement) Object {
 	// Create a new struct object
 	structObj := &Struct{
-		Name: node.Name.Value,
-		Fields: make(map[string]Object),
+		Name:          node.Name.Value,
+		Fields:        make(map[string]Object),
 		DefaultValues: make(map[string]Object),
 	}
 
@@ -809,32 +1014,43 @@ func (i *Interpreter) evalStructStatement(node *ast.StructStatement) Object {
 		}
 	}
 
-	// If we have a struct with field names that match type names (like "string" and "int"),
-	// it's likely that the parser misinterpreted the field declarations.
-	// Let's check the AST string to see if we can extract the correct field names.
-	if len(structObj.Fields) == 0 || (len(structObj.Fields) == 2 && structObj.Fields["string"] != nil && structObj.Fields["int"] != nil) {
-		// This is likely a struct with name: string and age: int fields
-		// Let's add the correct fields
-		structObj.Fields = make(map[string]Object)
-		structObj.DefaultValues = make(map[string]Object)
-
-		structObj.Fields["name"] = &Nil{}
-		structObj.DefaultValues["name"] = &Nil{}
-
-		structObj.Fields["age"] = &Nil{}
-		structObj.DefaultValues["age"] = &Nil{}
-	}
-
 	return structObj
 }
 
 // evalStructLiteral evaluates a struct literal (instantiation),
-// creating a new instance of a struct.
+// creating a new instance of a struct or class.
 func (i *Interpreter) evalStructLiteral(node *ast.StructLiteral) Object {
-	// Look up the struct definition
+	// Look up the struct/class definition
 	structObj, ok := i.env.Get(node.Type)
 	if !ok {
-		return newError("undefined struct type: %s", node.Type)
+		return newError("undefined type: %s", node.Type)
+	}
+
+	// If it's a builtin function (e.g., Channel()), call it
+	if builtin, ok := structObj.(*Builtin); ok {
+		args := []Object{}
+		for _, expr := range node.Fields {
+			val := i.eval(expr)
+			if isError(val) {
+				return val
+			}
+			args = append(args, val)
+		}
+		return builtin.Fn(args...)
+	}
+
+	// If it's a class, use class constructor
+	if classObj, ok := structObj.(*ClassObject); ok {
+		// Evaluate field expressions as positional args
+		args := []Object{}
+		for _, expr := range node.Fields {
+			val := i.eval(expr)
+			if isError(val) {
+				return val
+			}
+			args = append(args, val)
+		}
+		return i.callClassConstructor(classObj, args)
 	}
 
 	structType, ok := structObj.(*Struct)
@@ -930,66 +1146,45 @@ func (i *Interpreter) evalForLoop(node *ast.ForLoop) Object {
 		return collection
 	}
 
+	// Convert range to array if needed
+	if rangeObj, ok := collection.(*Range); ok {
+		collection = rangeObj.ToArray()
+	}
+
 	// Check if the collection is an array
 	array, ok := collection.(*Array)
 	if !ok {
-		return newError("for loop collection must be an array, got %s", collection.Type())
+		return newError("for loop collection must be an array or range, got %s", collection.Type())
 	}
 
-	// Get existing variable values from outer environment
-	// This is important for variables that will be modified in the loop
-	outerValues := make(map[string]Object)
-	variablesToTrack := []string{"sum", "squared", "total_age", "i", "j", "k"}
-
-	for _, name := range variablesToTrack {
-		if val, ok := i.env.Get(name); ok {
-			outerValues[name] = val
-		}
-	}
-
-	// Create a new environment for the loop body, but keep access to outer variables
-	loopEnv := NewEnclosedEnvironment(i.env)
-	oldEnv := i.env
-	i.env = loopEnv
-
-	// Iterate over the array elements
-	var result Object = &Nil{} // Default return value
+	var result Object = &Nil{}
 	for _, element := range array.Elements {
-		// Set the iterator variable to the current element
 		i.env.Set(node.Iterator.Value, element)
 
-		// Evaluate the loop body
 		result = i.evalBlockStatement(node.Body)
 
-		// Check for return or error
 		if isError(result) {
 			break
 		}
-		if returnValue, ok := result.(*ReturnValue); ok {
-			result = returnValue
+		if _, ok := result.(*BreakSignal); ok {
 			break
 		}
-	}
-
-	// Update any modified variables in the outer scope
-	for name := range outerValues {
-		if val, ok := i.env.Get(name); ok {
-			oldEnv.Set(name, val)
+		if _, ok := result.(*ContinueSignal); ok {
+			continue
+		}
+		if _, ok := result.(*ReturnValue); ok {
+			return result
 		}
 	}
 
-	// Restore the original environment
-	i.env = oldEnv
-
-	// Get the final value for the expected return value
-	// For most test cases this is "sum", "total_age", etc.
-	for _, name := range []string{"sum", "total_age", "squared"} {
-		if val, ok := i.env.Get(name); ok {
-			return val
-		}
+	// Don't leak break/continue signals out of the loop
+	if _, ok := result.(*BreakSignal); ok {
+		return &Nil{}
+	}
+	if _, ok := result.(*ContinueSignal); ok {
+		return &Nil{}
 	}
 
-	// Return the result of the loop (should rarely reach here)
 	return result
 }
 
@@ -1008,66 +1203,128 @@ func (i *Interpreter) evalIndexExpression(node *ast.IndexExpression) Object {
 		return index
 	}
 
-	// Check if the left side is an array
-	array, ok := left.(*Array)
-	if !ok {
+	switch obj := left.(type) {
+	case *Array:
+		idx, ok := index.(*Integer)
+		if !ok {
+			return newError("array index must be an integer, got %s", index.Type())
+		}
+		idxVal := idx.Value
+		// Support negative indexing: arr[-1] is the last element
+		if idxVal < 0 {
+			idxVal = int64(len(obj.Elements)) + idxVal
+		}
+		if idxVal < 0 || idxVal >= int64(len(obj.Elements)) {
+			return newError("array index out of bounds: %d", idx.Value)
+		}
+		return obj.Elements[idxVal]
+	case *Hash:
+		keyStr := index.Inspect()
+		val, exists := obj.Pairs[keyStr]
+		if !exists {
+			return &Nil{}
+		}
+		return val
+	default:
 		return newError("index operator not supported for %s", left.Type())
 	}
-
-	// Check if the index is an integer
-	idx, ok := index.(*Integer)
-	if !ok {
-		return newError("array index must be an integer, got %s", index.Type())
-	}
-
-	// Check if the index is in bounds
-	if idx.Value < 0 || idx.Value >= int64(len(array.Elements)) {
-		return newError("array index out of bounds: %d", idx.Value)
-	}
-
-	// Return the element at the index
-	return array.Elements[idx.Value]
 }
 
-// evalDotExpression evaluates a dot expression for struct field access.
-// Example: person.name
+// evalDotExpression evaluates a dot expression for struct field access
+// or as a zero-argument method call on any value (e.g., "hello".len).
+// Example: person.name, [1,2,3].len, "hello".type
 func (i *Interpreter) evalDotExpression(node *ast.DotExpression) Object {
-	// Evaluate the left side (the struct)
+	// Evaluate the left side
 	left := i.eval(node.Left)
 	if isError(left) {
 		return left
 	}
 
-	// Check if the left side is a struct instance
-	structInstance, ok := left.(*StructInstance)
-	if !ok {
-		return newError("dot operator not supported for %s", left.Type())
-	}
-
-	// Get the field name
 	fieldName := node.Field.Value
 
-	// First check if the field exists in the instance
-	field, ok := structInstance.Fields[fieldName]
-	if ok {
-		return field
-	}
-
-	// If not found in the instance, check if it exists in the struct type definition
-	if structInstance.Struct != nil {
-		if _, ok := structInstance.Struct.Fields[fieldName]; ok {
-			// The field exists in the struct definition but not in the instance
-			// This shouldn't happen if the struct was properly initialized
-			return newError("field '%s' exists in struct definition but not in instance", fieldName)
+	// Check if the left side is a class instance
+	if classInst, ok := left.(*ClassInstance); ok {
+		// Check instance fields
+		if field, ok := classInst.Fields[fieldName]; ok {
+			return field
 		}
+		// Check methods — return as zero-arg call
+		if method, found := classInst.Class.GetMethod(fieldName); found {
+			return i.callMethodOnInstance(classInst, method, []Object{})
+		}
+		// Fall through to builtin method lookup
 	}
 
-	// Field not found anywhere
-	return newError("undefined field '%s' in struct '%s'", fieldName, structInstance.Struct.Name)
+	// Check if the left side is a struct instance
+	if structInstance, ok := left.(*StructInstance); ok {
+		// First check if the field exists in the instance
+		if field, ok := structInstance.Fields[fieldName]; ok {
+			return field
+		}
+
+		// If not found in the instance, check if it exists in the struct type definition
+		if structInstance.Struct != nil {
+			if _, ok := structInstance.Struct.Fields[fieldName]; ok {
+				return newError("field '%s' exists in struct definition but not in instance", fieldName)
+			}
+		}
+
+		// Field not found on struct — fall through to try as method call
+	}
+
+	// Check if the left side is a hash — support dot access for keys
+	if hash, ok := left.(*Hash); ok {
+		if val, exists := hash.Pairs[fieldName]; exists {
+			return val
+		}
+		// Key not found — fall through to try as method call
+	}
+
+	// Not a struct or field not found — try as a zero-argument method call.
+	// This allows "hello".len, [1,2,3].first, 42.type, etc.
+	if fn, ok := i.env.Get(fieldName); ok {
+		return i.applyFunction(fn, []Object{left})
+	}
+
+	// Nothing matched
+	if structInstance, ok := left.(*StructInstance); ok {
+		return newError("undefined field '%s' in struct '%s'", fieldName, structInstance.Struct.Name)
+	}
+	return newError("undefined method '%s' for %s", fieldName, left.Type())
 }
 
 // evalInfixExpression evaluates an infix expression like 1 + 2, a == b, etc.
 func (i *Interpreter) evalInfixExpression(node *ast.InfixExpression) Object {
+	// Short-circuit evaluation for logical operators
+	if node.Operator == "&&" {
+		left := i.eval(node.Left)
+		if isError(left) {
+			return left
+		}
+		if !isTruthy(left) {
+			return &Boolean{Value: false}
+		}
+		right := i.eval(node.Right)
+		if isError(right) {
+			return right
+		}
+		return &Boolean{Value: isTruthy(right)}
+	}
+	if node.Operator == "||" {
+		left := i.eval(node.Left)
+		if isError(left) {
+			return left
+		}
+		if isTruthy(left) {
+			return &Boolean{Value: true}
+		}
+		right := i.eval(node.Right)
+		if isError(right) {
+			return right
+		}
+		return &Boolean{Value: isTruthy(right)}
+	}
+
 	left := i.eval(node.Left)
 	if isError(left) {
 		return left
@@ -1103,6 +1360,10 @@ func (i *Interpreter) evalInfixExpression(node *ast.InfixExpression) Object {
 	// Array operations
 	case left.Type() == ARRAY_OBJ && right.Type() == ARRAY_OBJ:
 		return i.evalArrayInfixExpression(node.Operator, left, right)
+
+	// String + any other type: auto-convert to string and concatenate
+	case node.Operator == "+" && (left.Type() == STRING_OBJ || right.Type() == STRING_OBJ):
+		return &String{Value: left.Inspect() + right.Inspect()}
 
 	default:
 		return newError("unsupported operator %s for types %s and %s",
@@ -1144,6 +1405,11 @@ func (i *Interpreter) evalIntegerInfixExpression(operator string, left, right Ob
 			return newError("division by zero")
 		}
 		return &Integer{Value: leftVal / rightVal}
+	case "%":
+		if rightVal == 0 {
+			return newError("division by zero")
+		}
+		return &Integer{Value: leftVal % rightVal}
 	case "<":
 		return &Boolean{Value: leftVal < rightVal}
 	case ">":
@@ -1270,4 +1536,271 @@ func (i *Interpreter) evalBooleanInfixExpression(operator string, left, right Ob
 	default:
 		return newError("unknown operator: %s %s %s", left.Type(), operator, right.Type())
 	}
+}
+
+// evalPrefixExpression evaluates a prefix expression like -5 or !true.
+func (i *Interpreter) evalPrefixExpression(node *ast.PrefixExpression) Object {
+	right := i.eval(node.Right)
+	if isError(right) {
+		return right
+	}
+
+	switch node.Operator {
+	case "!":
+		return i.evalBangOperator(right)
+	case "-":
+		return i.evalMinusPrefixOperator(right)
+	default:
+		return newError("unknown operator: %s%s", node.Operator, right.Type())
+	}
+}
+
+func (i *Interpreter) evalBangOperator(right Object) Object {
+	switch obj := right.(type) {
+	case *Boolean:
+		return &Boolean{Value: !obj.Value}
+	case *Nil:
+		return &Boolean{Value: true}
+	default:
+		return &Boolean{Value: false}
+	}
+}
+
+func (i *Interpreter) evalMinusPrefixOperator(right Object) Object {
+	switch obj := right.(type) {
+	case *Integer:
+		return &Integer{Value: -obj.Value}
+	case *Float:
+		return &Float{Value: -obj.Value}
+	default:
+		return newError("unknown operator: -%s", right.Type())
+	}
+}
+
+// evalIfExpression evaluates an if expression.
+func (i *Interpreter) evalIfExpression(node *ast.IfExpression) Object {
+	condition := i.eval(node.Condition)
+	if isError(condition) {
+		return condition
+	}
+
+	if isTruthy(condition) {
+		return i.eval(node.Consequence)
+	} else if node.Alternative != nil {
+		return i.eval(node.Alternative)
+	} else {
+		return &Nil{}
+	}
+}
+
+// isTruthy determines if an object is truthy.
+// nil and false are falsy, everything else is truthy.
+func isTruthy(obj Object) bool {
+	switch obj := obj.(type) {
+	case *Nil:
+		return false
+	case *Boolean:
+		return obj.Value
+	default:
+		return true
+	}
+}
+
+// evalStringInterpolation evaluates a string with interpolated expressions.
+func (i *Interpreter) evalStringInterpolation(node *ast.StringInterpolationLiteral) Object {
+	var out bytes.Buffer
+
+	for idx, part := range node.Parts {
+		out.WriteString(part)
+
+		if idx < len(node.Expressions) {
+			val := i.eval(node.Expressions[idx])
+			if isError(val) {
+				return val
+			}
+			out.WriteString(val.Inspect())
+		}
+	}
+
+	return &String{Value: out.String()}
+}
+
+// Range represents a range of integer values.
+type Range struct {
+	Start     int64
+	End       int64
+	Exclusive bool
+}
+
+func (r *Range) Type() ObjectType { return "RANGE" }
+func (r *Range) Inspect() string {
+	if r.Exclusive {
+		return fmt.Sprintf("%d...%d", r.Start, r.End)
+	}
+	return fmt.Sprintf("%d..%d", r.Start, r.End)
+}
+
+// ToArray converts a Range to an Array of Integers.
+func (r *Range) ToArray() *Array {
+	var elements []Object
+	if r.Start <= r.End {
+		end := r.End
+		if r.Exclusive {
+			end--
+		}
+		for val := r.Start; val <= end; val++ {
+			elements = append(elements, &Integer{Value: val})
+		}
+	} else {
+		end := r.End
+		if r.Exclusive {
+			end++
+		}
+		for val := r.Start; val >= end; val-- {
+			elements = append(elements, &Integer{Value: val})
+		}
+	}
+	return &Array{Elements: elements}
+}
+
+// evalRangeExpression evaluates a range expression like 1..5 or 1...5.
+func (i *Interpreter) evalRangeExpression(node *ast.RangeExpression) Object {
+	start := i.eval(node.Start)
+	if isError(start) {
+		return start
+	}
+
+	end := i.eval(node.End)
+	if isError(end) {
+		return end
+	}
+
+	startInt, ok := start.(*Integer)
+	if !ok {
+		return newError("range start must be an integer, got %s", start.Type())
+	}
+
+	endInt, ok := end.(*Integer)
+	if !ok {
+		return newError("range end must be an integer, got %s", end.Type())
+	}
+
+	return &Range{
+		Start:     startInt.Value,
+		End:       endInt.Value,
+		Exclusive: node.Exclusive,
+	}
+}
+
+// evalRangeCallExpression evaluates a Range() constructor call.
+func (i *Interpreter) evalRangeCallExpression(node *ast.RangeCallExpression) Object {
+	start := i.eval(node.Start)
+	if isError(start) {
+		return start
+	}
+
+	end := i.eval(node.End)
+	if isError(end) {
+		return end
+	}
+
+	startInt, ok := start.(*Integer)
+	if !ok {
+		return newError("Range start must be an integer, got %s", start.Type())
+	}
+
+	endInt, ok := end.(*Integer)
+	if !ok {
+		return newError("Range end must be an integer, got %s", end.Type())
+	}
+
+	return &Range{
+		Start:     startInt.Value,
+		End:       endInt.Value,
+		Exclusive: node.Exclusive,
+	}
+}
+
+// ClassObject represents a class definition in Vibe.
+type ClassObject struct {
+	Name    string
+	Parent  *ClassObject
+	Methods map[string]*Function
+}
+
+func (c *ClassObject) Type() ObjectType { return CLASS_OBJ }
+func (c *ClassObject) Inspect() string  { return "<class " + c.Name + ">" }
+
+// GetMethod looks up a method on the class or any parent class.
+func (c *ClassObject) GetMethod(name string) (*Function, bool) {
+	if fn, ok := c.Methods[name]; ok {
+		return fn, true
+	}
+	if c.Parent != nil {
+		return c.Parent.GetMethod(name)
+	}
+	return nil, false
+}
+
+// ClassInstance represents an instance of a class.
+type ClassInstance struct {
+	Class  *ClassObject
+	Fields map[string]Object
+}
+
+func (ci *ClassInstance) Type() ObjectType { return INSTANCE_OBJ }
+func (ci *ClassInstance) Inspect() string {
+	var out bytes.Buffer
+	out.WriteString("<" + ci.Class.Name + " instance")
+	if len(ci.Fields) > 0 {
+		fields := []string{}
+		for k, v := range ci.Fields {
+			fields = append(fields, k+": "+v.Inspect())
+		}
+		sort.Strings(fields)
+		out.WriteString(" ")
+		out.WriteString(strings.Join(fields, ", "))
+	}
+	out.WriteString(">")
+	return out.String()
+}
+
+// Function represents a user-defined function.
+type Function struct {
+	Parameters []*ast.Identifier
+	Defaults   []ast.Expression // Default values for parameters (nil = required)
+	Body       *ast.BlockStatement
+	Env        *Environment
+	Name       string
+}
+
+func (f *Function) Type() ObjectType { return FUNCTION_OBJ }
+func (f *Function) Inspect() string {
+	var out bytes.Buffer
+	params := []string{}
+	for _, p := range f.Parameters {
+		params = append(params, p.String())
+	}
+	out.WriteString("fn(")
+	out.WriteString(strings.Join(params, ", "))
+	out.WriteString(") { ... }")
+	return out.String()
+}
+
+// evalFunctionLiteral evaluates a function literal, creating a closure.
+func (i *Interpreter) evalFunctionLiteral(node *ast.FunctionLiteral) Object {
+	fn := &Function{
+		Parameters: node.Parameters,
+		Defaults:   node.ParamDefaults,
+		Body:       node.Body,
+		Env:        i.env,
+	}
+
+	// If it's a named function (def), bind it in the environment
+	if node.Name != nil {
+		fn.Name = node.Name.Value
+		i.env.Set(node.Name.Value, fn)
+	}
+
+	return fn
 }
