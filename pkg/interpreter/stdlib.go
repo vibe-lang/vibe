@@ -505,9 +505,17 @@ func loadConcurrent(env *Environment) {
 			result: &Nil{},
 		}
 
+		// Create a new interpreter with a child environment for the goroutine
+		// so it doesn't share mutable state with the main goroutine.
+		parentInterp := getBuiltinInterpreter()
+		spawnedInterp := &Interpreter{
+			env: NewEnclosedEnvironment(parentInterp.env),
+		}
+		registerBuiltins(spawnedInterp.env)
+
 		go func() {
 			defer close(task.done)
-			result := builtinInterpreter.applyFunction(args[0], []Object{})
+			result := spawnedInterp.applyFunction(args[0], []Object{})
 			task.mu.Lock()
 			task.result = result
 			task.mu.Unlock()

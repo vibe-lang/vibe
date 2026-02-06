@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // registerBuiltins adds all builtin functions to the given environment.
@@ -103,6 +104,20 @@ func registerBuiltins(env *Environment) {
 // builtinInterpreter is stored so map/filter/each can call user functions.
 // This is set by the interpreter during evaluation.
 var builtinInterpreter *Interpreter
+var builtinInterpreterMu sync.RWMutex
+
+func getBuiltinInterpreter() *Interpreter {
+	builtinInterpreterMu.RLock()
+	interp := builtinInterpreter
+	builtinInterpreterMu.RUnlock()
+	return interp
+}
+
+func setBuiltinInterpreter(i *Interpreter) {
+	builtinInterpreterMu.Lock()
+	builtinInterpreter = i
+	builtinInterpreterMu.Unlock()
+}
 
 func builtinPuts(args ...Object) Object {
 	for _, arg := range args {
@@ -303,7 +318,7 @@ func builtinMap(args ...Object) Object {
 	fn := args[1]
 	results := make([]Object, len(arr.Elements))
 	for idx, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(result) {
 			return result
 		}
@@ -323,7 +338,7 @@ func builtinFilter(args ...Object) Object {
 	fn := args[1]
 	var results []Object
 	for _, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(result) {
 			return result
 		}
@@ -347,7 +362,7 @@ func builtinEach(args ...Object) Object {
 	}
 	fn := args[1]
 	for _, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(result) {
 			return result
 		}
@@ -678,7 +693,7 @@ func builtinReduce(args ...Object) Object {
 	}
 
 	for idx := startIdx; idx < len(arr.Elements); idx++ {
-		result := builtinInterpreter.applyFunction(fn, []Object{acc, arr.Elements[idx]})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{acc, arr.Elements[idx]})
 		if isError(result) {
 			return result
 		}
@@ -697,7 +712,7 @@ func builtinFind(args ...Object) Object {
 	}
 	fn := args[1]
 	for _, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(result) {
 			return result
 		}
@@ -718,7 +733,7 @@ func builtinFindIndex(args ...Object) Object {
 	}
 	fn := args[1]
 	for idx, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(result) {
 			return result
 		}
@@ -756,7 +771,7 @@ func builtinAny(args ...Object) Object {
 	}
 	fn := args[1]
 	for _, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(result) {
 			return result
 		}
@@ -777,7 +792,7 @@ func builtinAll(args ...Object) Object {
 	}
 	fn := args[1]
 	for _, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(result) {
 			return result
 		}
@@ -798,7 +813,7 @@ func builtinNone(args ...Object) Object {
 	}
 	fn := args[1]
 	for _, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(result) {
 			return result
 		}
@@ -839,7 +854,7 @@ func builtinCount(args ...Object) Object {
 	fn := args[1]
 	count := int64(0)
 	for _, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(result) {
 			return result
 		}
@@ -930,7 +945,7 @@ func builtinReject(args ...Object) Object {
 	fn := args[1]
 	var result []Object
 	for _, elem := range arr.Elements {
-		r := builtinInterpreter.applyFunction(fn, []Object{elem})
+		r := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(r) {
 			return r
 		}
@@ -1049,7 +1064,7 @@ func builtinFlatMap(args ...Object) Object {
 	fn := args[1]
 	var result []Object
 	for _, elem := range arr.Elements {
-		r := builtinInterpreter.applyFunction(fn, []Object{elem})
+		r := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(r) {
 			return r
 		}
@@ -1082,7 +1097,7 @@ func builtinSortBy(args ...Object) Object {
 	}
 	pairs := make([]elemKey, len(arr.Elements))
 	for idx, elem := range arr.Elements {
-		k := builtinInterpreter.applyFunction(fn, []Object{elem})
+		k := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(k) {
 			return k
 		}
@@ -1200,7 +1215,7 @@ func builtinEachWithIndex(args ...Object) Object {
 	}
 	fn := args[1]
 	for idx, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem, &Integer{Value: int64(idx)}})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem, &Integer{Value: int64(idx)}})
 		if isError(result) {
 			return result
 		}
@@ -1219,7 +1234,7 @@ func builtinMapWithIndex(args ...Object) Object {
 	fn := args[1]
 	results := make([]Object, len(arr.Elements))
 	for idx, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem, &Integer{Value: int64(idx)}})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem, &Integer{Value: int64(idx)}})
 		if isError(result) {
 			return result
 		}
@@ -1239,7 +1254,7 @@ func builtinPartition(args ...Object) Object {
 	fn := args[1]
 	var yes, no []Object
 	for _, elem := range arr.Elements {
-		result := builtinInterpreter.applyFunction(fn, []Object{elem})
+		result := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(result) {
 			return result
 		}
@@ -1273,7 +1288,7 @@ func builtinGroupBy(args ...Object) Object {
 	groups := map[string][]Object{}
 	order := []string{}
 	for _, elem := range arr.Elements {
-		key := builtinInterpreter.applyFunction(fn, []Object{elem})
+		key := getBuiltinInterpreter().applyFunction(fn, []Object{elem})
 		if isError(key) {
 			return key
 		}

@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/vibe-lang/vibe/pkg/ast"
 )
@@ -149,6 +150,7 @@ func (b *Builtin) Inspect() string { return "builtin function" }
 // Environments form a chain, where each environment can have an outer
 // (parent) environment. This chain implements lexical scoping.
 type Environment struct {
+	mu     sync.RWMutex
 	store  map[string]Object // Map of variable names to their values
 	consts map[string]bool   // Set of constant variable names
 	outer  *Environment      // Outer (enclosing) environment, or nil if this is the top level
@@ -176,7 +178,9 @@ func NewEnclosedEnvironment(outer *Environment) *Environment {
 // if the variable is not found locally. Returns the value and a boolean
 // indicating whether the variable was found.
 func (e *Environment) Get(name string) (Object, bool) {
+	e.mu.RLock()
 	obj, ok := e.store[name]
+	e.mu.RUnlock()
 	if !ok && e.outer != nil {
 		obj, ok = e.outer.Get(name)
 	}
@@ -190,21 +194,28 @@ func (e *Environment) Set(name string, val Object) Object {
 	if e.IsConst(name) {
 		return newError("cannot reassign constant '%s'", name)
 	}
+	e.mu.Lock()
 	e.store[name] = val
+	e.mu.Unlock()
 	return val
 }
 
 // SetConst sets a constant value in the environment.
 // Constants cannot be reassigned after being set.
 func (e *Environment) SetConst(name string, val Object) Object {
+	e.mu.Lock()
 	e.store[name] = val
 	e.consts[name] = true
+	e.mu.Unlock()
 	return val
 }
 
 // IsConst checks if a name is a constant in the current or any outer environment.
 func (e *Environment) IsConst(name string) bool {
-	if e.consts[name] {
+	e.mu.RLock()
+	isConst := e.consts[name]
+	e.mu.RUnlock()
+	if isConst {
 		return true
 	}
 	if e.outer != nil {
@@ -215,10 +226,12 @@ func (e *Environment) IsConst(name string) bool {
 
 // Keys returns all variable names in the current environment scope.
 func (e *Environment) Keys() []string {
+	e.mu.RLock()
 	keys := make([]string, 0, len(e.store))
 	for k := range e.store {
 		keys = append(keys, k)
 	}
+	e.mu.RUnlock()
 	return keys
 }
 
@@ -433,7 +446,7 @@ func objectTypeName(obj Object) string {
 
 // Eval evaluates an AST node and returns the resulting object.
 func (i *Interpreter) Eval(node ast.Node) Object {
-	builtinInterpreter = i
+	setBuiltinInterpreter(i)
 	result := i.eval(node)
 
 	// Store error objects for later retrieval
