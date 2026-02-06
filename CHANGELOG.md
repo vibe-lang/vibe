@@ -4,6 +4,13 @@ All notable changes to the Vibe language will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1](https://github.com/vibe-lang/vibe/compare/v0.2.0...v0.2.1) (2026-02-06)
+
+
+### Features
+
+* add 10 syntax features, install script, and release automation ([ace941d](https://github.com/vibe-lang/vibe/commit/ace941dabfb7494be52d685098fd6a45b67cb4d3))
+
 ## [0.2.0] - 2025-02-05
 
 ### Added
