@@ -27,11 +27,11 @@
       "patterns": [
         {
           "name": "keyword.control.vibe",
-          "match": "\\b(if|elsif|else|end|for|in|while|break|continue|return|try|catch|throw|import)\\b"
+          "match": "\\b(if|elsif|else|unless|until|case|when|then|do|loop|begin|rescue|ensure|retry|raise|yield|next|redo|end|for|in|while|break|continue|return|try|catch|throw|import|and|or|not)\\b"
         },
         {
           "name": "keyword.other.vibe",
-          "match": "\\b(def|fn|let|struct)\\b"
+          "match": "\\b(def|fn|let|struct|class|module|enum|include|extend|attr_accessor|attr_reader|attr_writer|self|super|alias|const|private|protected|public)\\b"
         }
       ]
     },

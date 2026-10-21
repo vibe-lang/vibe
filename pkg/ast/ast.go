@@ -175,8 +175,9 @@ func (bs *BlockStatement) String() string {
 // Identifiers can be used as expressions (when their value is needed)
 // or as part of other constructs (like variable declarations).
 type Identifier struct {
-	Token lexer.Token // the IDENT token
-	Value string      // The name of the identifier
+	Token    lexer.Token // the IDENT token
+	Value    string      // The name of the identifier
+	NonLocal bool        // lowercase name that is not a known local variable (may be a parameterless method call)
 }
 
 func (i *Identifier) expressionNode()      {}
@@ -254,7 +255,11 @@ func (nl *NilLiteral) String() string       { return "nil" }
 // typed or untyped parameters, and can specify a return type.
 // They can also have type parameters for generics.
 type FunctionLiteral struct {
+	KwRest        *Identifier     // trailing **opts parameter, or nil
+	Keyword       []bool          // parallel to Parameters: true for keyword parameters (name: / name: default)
 	Token         lexer.Token     // The 'fn' or 'def' token
+	Receiver      *Identifier     // Receiver of a singleton definition (def self.name), or nil
+	BlockParam    *Identifier     // Name of a trailing &block parameter, or nil
 	Name          *Identifier     // Optional function name (can be nil for anonymous functions)
 	TypeParams    []string        // Generic type parameters (e.g., ["T", "U"])
 	Parameters    []*Identifier   // Parameters (can be empty)
@@ -331,10 +336,12 @@ func (fl *FunctionLiteral) String() string {
 // for properties and methods, providing better type safety.
 // They can also have type parameters for generics.
 type ClassLiteral struct {
+	IsModule   bool            // true for `module Name ... end`
 	Token      lexer.Token     // the 'class' token
 	Name       *Identifier     // The class name
 	TypeParams []string        // Generic type parameters (e.g., ["T", "U"])
 	Parent     *Identifier     // Optional parent class (for inheritance with <)
+	Implements []string        // Interfaces named by `implements A, B`
 	Body       *BlockStatement // Class body containing properties and methods
 }
 
@@ -392,10 +399,12 @@ func (ps *PropertyStatement) String() string {
 // - Optional type arguments for generic functions (e.g., <int, string>)
 // - The arguments passed to the function (a list of expressions)
 type CallExpression struct {
-	Token     lexer.Token  // The '(' token
-	Function  Expression   // Identifier or FunctionLiteral
-	TypeArgs  []string     // Explicit type arguments for generic calls (e.g., ["int", "string"])
-	Arguments []Expression // The arguments passed to the function
+	Implicit  bool           // bare `super` with no parentheses: forwards the current arguments
+	Block     *ArrowFunction // Trailing do/end or { } block, or nil
+	Token     lexer.Token    // The '(' token
+	Function  Expression     // Identifier or FunctionLiteral
+	TypeArgs  []string       // Explicit type arguments for generic calls (e.g., ["int", "string"])
+	Arguments []Expression   // The arguments passed to the function
 }
 
 func (ce *CallExpression) expressionNode()      {}
@@ -618,10 +627,11 @@ func (ss *StructStatement) String() string {
 // It creates a new instance of a struct.
 // Example: Pair<int, string>(first: 1, second: "hello")
 type StructLiteral struct {
-	Token    lexer.Token           // The struct type name token
-	Type     string                // Name of the struct type
-	TypeArgs []string              // Explicit type arguments (e.g., ["int", "string"])
-	Fields   map[string]Expression // Named field values
+	FieldOrder []string              // field names in source order
+	Token      lexer.Token           // The struct type name token
+	Type       string                // Name of the struct type
+	TypeArgs   []string              // Explicit type arguments (e.g., ["int", "string"])
+	Fields     map[string]Expression // Named field values
 }
 
 func (sl *StructLiteral) expressionNode()      {}
@@ -680,13 +690,17 @@ func (re *RangeExpression) expressionNode()      {}
 func (re *RangeExpression) TokenLiteral() string { return re.Token.Literal }
 func (re *RangeExpression) String() string {
 	var out bytes.Buffer
-	out.WriteString(re.Start.String())
+	if re.Start != nil {
+		out.WriteString(re.Start.String())
+	}
 	if re.Exclusive {
 		out.WriteString("...")
 	} else {
 		out.WriteString("..")
 	}
-	out.WriteString(re.End.String())
+	if re.End != nil {
+		out.WriteString(re.End.String())
+	}
 	return out.String()
 }
 
@@ -766,6 +780,7 @@ func (fl *ForLoop) String() string {
 // DotExpression represents a dot expression for accessing struct fields.
 // Example: person.name
 type DotExpression struct {
+	Safe  bool        // true for the safe-navigation form a&.b
 	Token lexer.Token // The '.' token
 	Left  Expression  // The expression before the dot (e.g., person)
 	Field *Identifier // The field name after the dot (e.g., name)
@@ -869,6 +884,7 @@ func (wl *WhileLoop) String() string {
 
 // BreakStatement represents a break statement inside a loop.
 type BreakStatement struct {
+	Value Expression // optional value (break out of a block with a result)
 	Token lexer.Token
 }
 
@@ -887,8 +903,9 @@ func (cs *ContinueStatement) String() string       { return "continue" }
 
 // HashLiteral represents a hash map literal: {key: value, ...}
 type HashLiteral struct {
-	Token lexer.Token
-	Pairs map[Expression]Expression
+	Entries []HashEntry // Entries in source order, including splats
+	Token   lexer.Token
+	Pairs   map[Expression]Expression
 }
 
 func (hl *HashLiteral) expressionNode()      {}
@@ -896,8 +913,18 @@ func (hl *HashLiteral) TokenLiteral() string { return hl.Token.Literal }
 func (hl *HashLiteral) String() string {
 	var out bytes.Buffer
 	pairs := []string{}
-	for key, value := range hl.Pairs {
-		pairs = append(pairs, key.String()+": "+value.String())
+	if len(hl.Entries) > 0 {
+		for _, e := range hl.Entries {
+			if e.Splat {
+				pairs = append(pairs, "**"+e.Value.String())
+			} else {
+				pairs = append(pairs, e.Key.String()+": "+e.Value.String())
+			}
+		}
+	} else {
+		for key, value := range hl.Pairs {
+			pairs = append(pairs, key.String()+": "+value.String())
+		}
 	}
 	out.WriteString("{")
 	out.WriteString(strings.Join(pairs, ", "))
@@ -917,6 +944,8 @@ func (is *ImportStatement) String() string       { return "import \"" + is.Path 
 
 // TryExpression represents: try ... catch e ... finally ... end
 type TryExpression struct {
+	Rescues     []*RescueClause // begin/rescue clauses, in source order
+	ElseBody    *BlockStatement // runs when the body raised nothing (begin/rescue/else)
 	Token       lexer.Token
 	Body        *BlockStatement
 	CatchVar    *Identifier
@@ -930,12 +959,18 @@ func (te *TryExpression) String() string {
 	var out bytes.Buffer
 	out.WriteString("try ")
 	out.WriteString(te.Body.String())
-	out.WriteString(" catch ")
-	if te.CatchVar != nil {
-		out.WriteString(te.CatchVar.String())
-		out.WriteString(" ")
+	if te.CatchBody != nil {
+		out.WriteString(" catch ")
+		if te.CatchVar != nil {
+			out.WriteString(te.CatchVar.String())
+			out.WriteString(" ")
+		}
+		out.WriteString(te.CatchBody.String())
 	}
-	out.WriteString(te.CatchBody.String())
+	for _, r := range te.Rescues {
+		out.WriteString(" ")
+		out.WriteString(r.String())
+	}
 	return out.String()
 }
 
@@ -1029,6 +1064,7 @@ func (ul *UntilLoop) String() string {
 
 // CaseExpression represents: case value when ... else ... end
 type CaseExpression struct {
+	Ins     []*InClause // `in pattern` clauses (pattern matching form)
 	Token   lexer.Token
 	Subject Expression      // The value being matched
 	Whens   []*WhenClause   // List of when clauses
@@ -1077,9 +1113,17 @@ func (wc *WhenClause) String() string {
 
 // ArrowFunction represents: -> (params) { body }
 type ArrowFunction struct {
-	Token      lexer.Token
-	Parameters []*Identifier
-	Body       *BlockStatement
+	KwRest        *Identifier  // trailing **opts parameter, or nil
+	Keyword       []bool       // parallel to Parameters: true for keyword parameters
+	IsBlock       bool         // true for do/end and { |x| } blocks
+	ParamTypes    []Expression // Parameter type annotations (nil entries for untyped)
+	ParamDefaults []Expression // Parameter defaults (nil entries for required)
+	Variadic      bool         // Last parameter collects the rest (*args)
+	BlockParam    *Identifier  // Trailing &block parameter
+	ReturnType    Expression   // Optional return type
+	Token         lexer.Token
+	Parameters    []*Identifier
+	Body          *BlockStatement
 }
 
 func (af *ArrowFunction) expressionNode()      {}
@@ -1126,9 +1170,10 @@ func (nc *NilCoalesceExpression) String() string {
 
 // DestructureAssignment represents: a, b, c = [1, 2, 3]
 type DestructureAssignment struct {
-	Token lexer.Token
-	Names []*Identifier
-	Value Expression
+	Targets []Expression // Identifiers, splats, index/dot targets or nested *DestructureAssignment (Value nil)
+	Token   lexer.Token
+	Names   []*Identifier
+	Value   Expression
 }
 
 func (da *DestructureAssignment) expressionNode()      {}

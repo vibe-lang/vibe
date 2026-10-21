@@ -313,7 +313,7 @@ func TestForLoopWithIndexTracking(t *testing.T) {
 		t.Fatalf("result is not Integer. got=%T (%+v)", result, result)
 	}
 
-	expected := 524  // Calculated value based on the formula
+	expected := 524 // Calculated value based on the formula
 	if intObj.Value != int64(expected) {
 		t.Errorf("result has wrong value. got=%d, want=%d", intObj.Value, expected)
 	}

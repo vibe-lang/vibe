@@ -585,34 +585,43 @@ func builtinAbs(args ...Object) Object {
 	}
 }
 
-func builtinMin(args ...Object) Object {
-	if len(args) != 2 {
-		return newError("min: expected 2 arguments, got %d", len(args))
-	}
-	a, aOk := args[0].(*Integer)
-	b, bOk := args[1].(*Integer)
-	if aOk && bOk {
-		if a.Value < b.Value {
-			return a
+func builtinMin(args ...Object) Object { return builtinExtreme("min", -1, args) }
+
+func builtinMax(args ...Object) Object { return builtinExtreme("max", 1, args) }
+
+// builtinExtreme returns the smallest (dir -1) or largest (dir 1) numeric argument,
+// accepting either several numbers or a single array of numbers.
+func builtinExtreme(name string, dir int, args []Object) Object {
+	if len(args) == 1 {
+		if arr, ok := args[0].(*Array); ok {
+			args = arr.Elements
 		}
-		return b
 	}
-	return newError("min: arguments must be integers")
+	if len(args) == 0 {
+		return newError("%s: expected at least 1 argument", name)
+	}
+	best := args[0]
+	for _, a := range args {
+		x, ok1 := numVal(a)
+		y, ok2 := numVal(best)
+		if !ok1 || !ok2 {
+			return newError("%s: arguments must be numbers", name)
+		}
+		if (dir < 0 && x < y) || (dir > 0 && x > y) {
+			best = a
+		}
+	}
+	return best
 }
 
-func builtinMax(args ...Object) Object {
-	if len(args) != 2 {
-		return newError("max: expected 2 arguments, got %d", len(args))
+func numVal(o Object) (float64, bool) {
+	switch v := o.(type) {
+	case *Integer:
+		return float64(v.Value), true
+	case *Float:
+		return v.Value, true
 	}
-	a, aOk := args[0].(*Integer)
-	b, bOk := args[1].(*Integer)
-	if aOk && bOk {
-		if a.Value > b.Value {
-			return a
-		}
-		return b
-	}
-	return newError("max: arguments must be integers")
+	return 0, false
 }
 
 func builtinStringLength(args ...Object) Object {
@@ -1785,6 +1794,21 @@ func (e *VibeError) Inspect() string {
 		return fmt.Sprintf("Error(%s, %s)", e.Message, e.Data.Inspect())
 	}
 	return fmt.Sprintf("Error(%s)", e.Message)
+}
+
+func (i *Interpreter) vibeErrorMethod(e *VibeError, name string) (Object, bool) {
+	switch name {
+	case "message":
+		return &String{Value: e.Message}, true
+	case "data":
+		if e.Data == nil {
+			return &Nil{}, true
+		}
+		return e.Data, true
+	case "type":
+		return &String{Value: "Error"}, true
+	}
+	return nil, false
 }
 
 // Error(message, data?) -- create a structured error object

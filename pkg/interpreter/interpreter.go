@@ -3,7 +3,6 @@ package interpreter
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -85,7 +84,8 @@ func (b *Boolean) Inspect() string { return fmt.Sprintf("%t", b.Value) }
 // String represents a string value in Vibe.
 // It wraps a Go string value and implements the Object interface.
 type String struct {
-	Value string // The actual string value
+	Value  string // The actual string value
+	Frozen bool
 }
 
 // Type returns the type of the String object.
@@ -110,6 +110,7 @@ func (n *Nil) Inspect() string { return "nil" }
 // they reach the appropriate function call boundary.
 type ReturnValue struct {
 	Value Object // The actual value being returned
+	Next  bool   // true for `next`, which only leaves the current block
 }
 
 // Type returns the type of the ReturnValue object.
@@ -125,6 +126,13 @@ type Error struct {
 	Message string // The error message
 	Line    int    // Line number where the error occurred
 	Column  int    // Column position where the error occurred
+
+	// Signal carries non-local control flow (return/break out of a block)
+	// through code that only knows how to propagate errors.
+	Signal Object
+	Owner  Object // block that a break signal belongs to
+	Frame  *Frame // method activation a return signal belongs to
+	Class  string // exception class name to raise this error as (optional)
 }
 
 // Type returns the type of the Error object.
@@ -184,6 +192,14 @@ func (e *Environment) Get(name string) (Object, bool) {
 	if !ok && e.outer != nil {
 		obj, ok = e.outer.Get(name)
 	}
+	return obj, ok
+}
+
+// GetLocal retrieves a value from this scope only, without consulting outer scopes.
+func (e *Environment) GetLocal(name string) (Object, bool) {
+	e.mu.RLock()
+	obj, ok := e.store[name]
+	e.mu.RUnlock()
 	return obj, ok
 }
 
@@ -271,6 +287,8 @@ func New() *Interpreter {
 	}
 
 	registerBuiltins(i.env)
+	registerExceptions(i)
+	registerCore(i)
 
 	return i
 }
@@ -283,158 +301,6 @@ func (i *Interpreter) SetArgs(scriptName string, args []string) {
 	}
 	i.env.Set("ARGV", &Array{Elements: elements})
 	i.env.Set("SCRIPT_NAME", &String{Value: scriptName})
-}
-
-// applyFunction applies a function to the given arguments.
-func (i *Interpreter) applyFunction(fn Object, args []Object) Object {
-	switch fn := fn.(type) {
-	case *Builtin:
-		return fn.Fn(args...)
-	case *Function:
-		return i.applyUserFunction(fn, args)
-	case *ClassObject:
-		return i.callClassConstructor(fn, args)
-	case *SuperProxy:
-		// super(args) — call the parent's initialize method
-		definingClass, initMethod := findMethodInChain(fn.Parent, "initialize")
-		if initMethod != nil {
-			return i.callMethodOnInstanceFromClass(fn.Instance, definingClass, initMethod, args)
-		}
-		return newError("parent class '%s' has no initialize method", fn.Parent.Name)
-	default:
-		return newError("not a function: %s", fn.Type())
-	}
-}
-
-// applyUserFunction applies a user-defined function to the given arguments.
-func (i *Interpreter) applyUserFunction(fn *Function, args []Object) Object {
-	return i.applyUserFunctionWithTypeArgs(fn, args, nil)
-}
-
-// applyUserFunctionWithTypeArgs applies a user-defined function with optional explicit type args.
-func (i *Interpreter) applyUserFunctionWithTypeArgs(fn *Function, args []Object, typeArgs []string) Object {
-	// Create a new enclosed environment for the function
-	extendedEnv := NewEnclosedEnvironment(fn.Env)
-
-	// If the function has type parameters, resolve them
-	if len(fn.TypeParams) > 0 {
-		resolvedTypes := make(map[string]string) // TypeParam -> concrete type
-
-		// If explicit type args provided, use them
-		if len(typeArgs) > 0 {
-			if len(typeArgs) != len(fn.TypeParams) {
-				return newError("wrong number of type arguments for %s: expected %d, got %d",
-					fn.Name, len(fn.TypeParams), len(typeArgs))
-			}
-			for idx, tp := range fn.TypeParams {
-				resolvedTypes[tp] = typeArgs[idx]
-			}
-		} else {
-			// Infer type parameters from argument types
-			for paramIdx, paramType := range fn.ParamTypes {
-				if paramIdx >= len(args) {
-					break
-				}
-				if paramType != nil {
-					typeAnno := extractTypeName(paramType)
-					if typeAnno != "" {
-						// Check if this type name is one of the type params
-						for _, tp := range fn.TypeParams {
-							if typeAnno == tp {
-								// Infer this type param from the argument
-								argTypeName := objectTypeName(args[paramIdx])
-								if existing, ok := resolvedTypes[tp]; ok {
-									if existing != argTypeName {
-										return newError("type parameter %s inconsistently inferred: %s vs %s",
-											tp, existing, argTypeName)
-									}
-								} else {
-									resolvedTypes[tp] = argTypeName
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Validate argument types against resolved type params
-		for paramIdx, paramType := range fn.ParamTypes {
-			if paramIdx >= len(args) {
-				break
-			}
-			if paramType != nil {
-				typeAnno := extractTypeName(paramType)
-				if resolvedType, ok := resolvedTypes[typeAnno]; ok {
-					argTypeName := objectTypeName(args[paramIdx])
-					if argTypeName != resolvedType {
-						return newError("type mismatch for parameter '%s': expected %s (from %s = %s), got %s",
-							fn.Parameters[paramIdx].Value, resolvedType, typeAnno, resolvedType, argTypeName)
-					}
-				}
-			}
-		}
-	}
-
-	// Bind parameters to arguments, using defaults for missing args
-	if fn.Variadic && len(fn.Parameters) > 0 {
-		// The last parameter is variadic: collect extra args into an array
-		lastParamIdx := len(fn.Parameters) - 1
-		// Bind normal (non-variadic) parameters
-		for paramIdx := 0; paramIdx < lastParamIdx; paramIdx++ {
-			if paramIdx < len(args) {
-				extendedEnv.Set(fn.Parameters[paramIdx].Value, args[paramIdx])
-			} else if paramIdx < len(fn.Defaults) && fn.Defaults[paramIdx] != nil {
-				oldEnv := i.env
-				i.env = extendedEnv
-				defaultVal := i.eval(fn.Defaults[paramIdx])
-				i.env = oldEnv
-				if isError(defaultVal) {
-					return defaultVal
-				}
-				extendedEnv.Set(fn.Parameters[paramIdx].Value, defaultVal)
-			}
-		}
-		// Collect remaining args into an array for the variadic parameter
-		varArgs := []Object{}
-		if lastParamIdx < len(args) {
-			varArgs = args[lastParamIdx:]
-		}
-		extendedEnv.Set(fn.Parameters[lastParamIdx].Value, &Array{Elements: varArgs})
-	} else {
-		for paramIdx, param := range fn.Parameters {
-			if paramIdx < len(args) {
-				extendedEnv.Set(param.Value, args[paramIdx])
-			} else if paramIdx < len(fn.Defaults) && fn.Defaults[paramIdx] != nil {
-				// Use default value
-				oldEnv := i.env
-				i.env = extendedEnv
-				defaultVal := i.eval(fn.Defaults[paramIdx])
-				i.env = oldEnv
-				if isError(defaultVal) {
-					return defaultVal
-				}
-				extendedEnv.Set(param.Value, defaultVal)
-			}
-		}
-	}
-
-	// Save the current environment and switch to the function environment
-	oldEnv := i.env
-	i.env = extendedEnv
-
-	// Evaluate the function body
-	result := i.eval(fn.Body)
-
-	// Restore the environment
-	i.env = oldEnv
-
-	// Unwrap return values
-	if returnValue, ok := result.(*ReturnValue); ok {
-		return returnValue.Value
-	}
-
-	return result
 }
 
 // extractTypeName extracts a type name string from a type annotation AST expression.
@@ -503,52 +369,12 @@ func (i *Interpreter) eval(node ast.Node) Object {
 	case *ast.ExpressionStatement:
 		return i.eval(node.Expression)
 	case *ast.ReturnStatement:
-		val := i.eval(node.Value)
-		if isError(val) {
-			return val
-		}
-		return &ReturnValue{Value: val}
+		return i.evalReturn(node)
 	case *ast.BlockStatement:
 		return i.evalBlockStatement(node)
 	case *ast.ForLoop:
 		return i.evalForLoop(node)
 	case *ast.Identifier:
-		// Handle 'self' as a special identifier
-		if node.Value == "self" {
-			if val, ok := i.env.Get("self"); ok {
-				return val
-			}
-			return newError("'self' used outside of a class method")
-		}
-		// Handle 'super' as a special identifier
-		if node.Value == "super" {
-			selfObj, ok := i.env.Get("self")
-			if !ok {
-				return newError("'super' used outside of a class method")
-			}
-			instance, ok := selfObj.(*ClassInstance)
-			if !ok {
-				return newError("'super' used outside of a class context")
-			}
-			// Use the current defining class to find the parent, not instance.Class
-			// This is critical for correct super resolution in multi-level inheritance
-			currentClassObj, ok := i.env.Get("__current_class__")
-			if !ok {
-				// Fallback to instance's class if __current_class__ not set
-				if instance.Class.Parent == nil {
-					return newError("'super' used in a class with no parent")
-				}
-				return &SuperProxy{Instance: instance, Parent: instance.Class.Parent}
-			}
-			currentClass, ok := currentClassObj.(*ClassObject)
-			if !ok {
-				return newError("'super' used outside of a class context")
-			}
-			if currentClass.Parent == nil {
-				return newError("'super' used in a class with no parent")
-			}
-			return &SuperProxy{Instance: instance, Parent: currentClass.Parent}
-		}
 		return i.evalIdentifier(node)
 	case *ast.TypedIdentifier:
 		// For TypedIdentifier, we just evaluate the underlying identifier
@@ -559,106 +385,7 @@ func (i *Interpreter) eval(node ast.Node) Object {
 	case *ast.InfixExpression:
 		return i.evalInfixExpression(node)
 	case *ast.CallExpression:
-		// Handle method-style calls: obj.method(args) -> method(obj, args)
-		// When the function is a DotExpression, evaluate the left side first.
-		if dotExpr, ok := node.Function.(*ast.DotExpression); ok {
-			left := i.eval(dotExpr.Left)
-			if isError(left) {
-				return left
-			}
-			methodName := dotExpr.Field.Value
-
-			// Handle super.method(args) — call parent class method
-			if superProxy, ok := left.(*SuperProxy); ok {
-				// Find the method and which class defines it
-				definingClass, method := findMethodInChain(superProxy.Parent, methodName)
-				if method != nil {
-					args := i.evalExpressions(node.Arguments)
-					if len(args) == 1 && isError(args[0]) {
-						return args[0]
-					}
-					return i.callMethodOnInstanceFromClass(superProxy.Instance, definingClass, method, args)
-				}
-				return newError("undefined method '%s' in parent class '%s'", methodName, superProxy.Parent.Name)
-			}
-
-			// If left is a class instance, look up the method on the class
-			if classInst, ok := left.(*ClassInstance); ok {
-				// Check instance fields first (may be a function)
-				if field, ok := classInst.Fields[methodName]; ok {
-					if fn, ok := field.(*Function); ok {
-						args := i.evalExpressions(node.Arguments)
-						if len(args) == 1 && isError(args[0]) {
-							return args[0]
-						}
-						return i.callMethodOnInstance(classInst, fn, args)
-					}
-					// Field exists but not a function — error
-					return newError("'%s' is not a method", methodName)
-				}
-				// Look up method on the class
-				if method, ok := classInst.Class.GetMethod(methodName); ok {
-					args := i.evalExpressions(node.Arguments)
-					if len(args) == 1 && isError(args[0]) {
-						return args[0]
-					}
-					return i.callMethodOnInstance(classInst, method, args)
-				}
-				// Fall through to builtin methods
-			}
-
-			// If left is a struct instance, try field access (may return a function)
-			if structInst, ok := left.(*StructInstance); ok {
-				if field, ok := structInst.Fields[methodName]; ok {
-					args := i.evalExpressions(node.Arguments)
-					if len(args) == 1 && isError(args[0]) {
-						return args[0]
-					}
-					return i.applyFunction(field, args)
-				}
-			}
-
-			// If left is a hash, check if the value at the key is a callable function
-			if hash, ok := left.(*Hash); ok {
-				if val, exists := hash.Pairs[methodName]; exists {
-					args := i.evalExpressions(node.Arguments)
-					if len(args) == 1 && isError(args[0]) {
-						return args[0]
-					}
-					return i.applyFunction(val, args)
-				}
-			}
-
-			// Not a struct/hash or field not found — treat as method call
-			fn, ok := i.env.Get(methodName)
-			if !ok {
-				return newError("undefined method: %s", methodName)
-			}
-			args := i.evalExpressions(node.Arguments)
-			if len(args) == 1 && isError(args[0]) {
-				return args[0]
-			}
-			// Prepend the receiver (left) as the first argument
-			allArgs := make([]Object, 0, len(args)+1)
-			allArgs = append(allArgs, left)
-			allArgs = append(allArgs, args...)
-			return i.applyFunction(fn, allArgs)
-		}
-		function := i.eval(node.Function)
-		if isError(function) {
-			return function
-		}
-		args := i.evalExpressions(node.Arguments)
-		if len(args) == 1 && isError(args[0]) {
-			return args[0]
-		}
-		// If explicit type args are provided, pass them through
-		if len(node.TypeArgs) > 0 {
-			if fn, ok := function.(*Function); ok {
-				return i.applyUserFunctionWithTypeArgs(fn, args, node.TypeArgs)
-			}
-		}
-		return i.applyFunction(function, args)
+		return i.evalCallExpression(node)
 	case *ast.IntegerLiteral:
 		return &Integer{Value: node.Value}
 	case *ast.FloatLiteral:
@@ -670,9 +397,9 @@ func (i *Interpreter) eval(node ast.Node) Object {
 	case *ast.NilLiteral:
 		return &Nil{}
 	case *ast.ArrayLiteral:
-		elements := i.evalExpressions(node.Elements)
-		if len(elements) == 1 && isError(elements[0]) {
-			return elements[0]
+		elements, _, err := i.evalArgs(node.Elements)
+		if err != nil {
+			return err
 		}
 		return &Array{Elements: elements}
 	case *ast.IndexExpression:
@@ -708,7 +435,7 @@ func (i *Interpreter) eval(node ast.Node) Object {
 	case *ast.WhileLoop:
 		return i.evalWhileLoop(node)
 	case *ast.BreakStatement:
-		return &BreakSignal{}
+		return i.evalBreak(node)
 	case *ast.ContinueStatement:
 		return &ContinueSignal{}
 	case *ast.HashLiteral:
@@ -745,6 +472,30 @@ func (i *Interpreter) eval(node ast.Node) Object {
 		return i.evalConstStatement(node)
 	case *ast.PostfixCondition:
 		return i.evalPostfixCondition(node)
+	case *ast.SymbolLiteral:
+		return &Symbol{Name: node.Value}
+	case *ast.RegexLiteral:
+		return i.evalRegexLiteral(node)
+	case *ast.YieldExpression:
+		return i.evalYield(node)
+	case *ast.LogicalAssignment:
+		return i.evalLogicalAssignment(node)
+	case *ast.PostfixLoop:
+		return i.evalPostfixLoop(node)
+	case *ast.AliasStatement:
+		return i.evalAlias(node)
+	case *ast.RetryStatement:
+		return &RetrySignal{}
+	case *ast.PropertyStatement:
+		return i.evalPropertyStatement(node)
+	case *ast.MatchPattern:
+		return i.evalMatchPattern(node)
+	case *ast.InterfaceStatement:
+		return i.evalInterface(node)
+	case *ast.TypeAliasStatement:
+		return i.evalTypeAlias(node)
+	case *ast.SplatExpression:
+		return i.eval(node.Value)
 	default:
 		return newError("unknown node type: %T", node)
 	}
@@ -759,11 +510,18 @@ func (i *Interpreter) evalProgram(program *ast.Program) Object {
 	for _, statement := range program.Statements {
 		result = i.eval(statement)
 
-		switch result := result.(type) {
+		switch r := result.(type) {
 		case *ReturnValue:
-			return result.Value
+			return r.Value
 		case *Error:
-			return result
+			if rv, ok := r.Signal.(*ReturnValue); ok {
+				return rv.Value
+			}
+			return r
+		case *ThrowSignal:
+			return i.uncaught(r)
+		case *BreakSignal, *ContinueSignal:
+			return newError("break/next outside of a loop")
 		}
 	}
 
@@ -774,19 +532,16 @@ func (i *Interpreter) evalProgram(program *ast.Program) Object {
 // It evaluates each statement in the block and returns the result of the last statement.
 // If a return statement is encountered, it returns the return value (still wrapped).
 func (i *Interpreter) evalBlockStatement(block *ast.BlockStatement) Object {
-	var result Object
-
+	var result Object = &Nil{}
+	if block == nil {
+		return result
+	}
 	for _, statement := range block.Statements {
 		result = i.eval(statement)
-
-		if result != nil {
-			rt := result.Type()
-			if rt == RETURN_VALUE_OBJ || rt == ERROR_OBJ || rt == BREAK_OBJ || rt == CONTINUE_OBJ || rt == THROW_OBJ {
-				return result
-			}
+		if isControl(result) {
+			return result
 		}
 	}
-
 	return result
 }
 
@@ -797,14 +552,42 @@ func (i *Interpreter) evalIdentifier(node *ast.Identifier) Object {
 	if val, ok := i.env.Get(node.Value); ok {
 		return val
 	}
-
+	switch {
+	case node.Value == "self":
+		return newError("'self' used outside of a class method")
+	case strings.HasPrefix(node.Value, "@@"):
+		return i.getCvar(node.Value)
+	case strings.HasPrefix(node.Value, "$"):
+		return &Nil{}
+	case node.Value == "block_given?":
+		res, _ := i.evalSpecialCall(node, &ast.CallExpression{Function: node}, nil)
+		return res
+	case node.Value == "super":
+		return i.evalSuperCall(&ast.CallExpression{Function: node, Implicit: true}, nil)
+	}
+	if node.NonLocal {
+		if res, found := i.callSelfMethod(node.Value, nil, nil); found {
+			return res
+		}
+	}
+	if isUpper(node.Value) {
+		if c := i.lookupConstant(node.Value); c != nil {
+			return c
+		}
+		return newError("uninitialized constant %s", node.Value)
+	}
 	return newError("identifier not found: %s", node.Value)
+}
+
+func isUpper(name string) bool {
+	return name != "" && name[0] >= 'A' && name[0] <= 'Z'
 }
 
 // Array represents an array value in Vibe.
 // It contains a list of other objects.
 type Array struct {
 	Elements []Object // The array elements
+	Frozen   bool
 }
 
 // Type returns the type of the Array object.
@@ -841,69 +624,8 @@ func (i *Interpreter) evalAssignmentExpression(node *ast.AssignmentExpression) O
 		return val
 	}
 
-	// If there's a type annotation, validate the type
-	if node.TypeAnnotation != nil {
-		// Handle union types
-		if unionType, ok := node.TypeAnnotation.(*ast.UnionTypeAnnotation); ok {
-			if !i.validateUnionType(unionType, val) {
-				types := []string{}
-				for _, t := range unionType.Types {
-					types = append(types, t.String())
-				}
-				return newError("type mismatch: expected %s, got %s", strings.Join(types, " | "), val.Type())
-			}
-		} else {
-			// Get the type name from the annotation
-			var typeName string
-
-			switch typeExpr := node.TypeAnnotation.(type) {
-			case *ast.Identifier:
-				typeName = typeExpr.Value
-			case *ast.ArrayTypeAnnotation:
-				baseType := ""
-				if ident, ok := typeExpr.BaseType.(*ast.Identifier); ok {
-					baseType = ident.Value
-				} else if arrayType, ok := typeExpr.BaseType.(*ast.ArrayTypeAnnotation); ok {
-					if baseIdent, ok := arrayType.BaseType.(*ast.Identifier); ok {
-						baseType = baseIdent.Value + "[]"
-					} else if compoundType, ok := arrayType.BaseType.(*ast.CompoundTypeAnnotation); ok {
-						baseType = compoundType.String()
-					}
-				} else if compoundType, ok := typeExpr.BaseType.(*ast.CompoundTypeAnnotation); ok {
-					baseType = compoundType.String()
-				}
-				typeName = baseType + "[]"
-			case *ast.CompoundTypeAnnotation:
-				typeName = typeExpr.String()
-			}
-
-			switch typeName {
-			case "int":
-				if _, ok := val.(*Integer); !ok {
-					return newError("type mismatch: expected int, got %s", val.Type())
-				}
-			case "float":
-				if _, ok := val.(*Float); !ok {
-					if _, ok := val.(*Integer); !ok {
-						return newError("type mismatch: expected float, got %s", val.Type())
-					}
-				}
-			case "string":
-				if _, ok := val.(*String); !ok {
-					return newError("type mismatch: expected string, got %s", val.Type())
-				}
-			case "boolean":
-				if _, ok := val.(*Boolean); !ok {
-					return newError("type mismatch: expected boolean, got %s", val.Type())
-				}
-			default:
-				if strings.HasSuffix(typeName, "[]") {
-					if err := i.validateArrayType(typeName, val); err != nil {
-						return err
-					}
-				}
-			}
-		}
+	if node.TypeAnnotation != nil && !i.typeMatches(val, node.TypeAnnotation, i.env, nil) {
+		return newErrorClass("TypeError", "type mismatch: expected %s, got %s", node.TypeAnnotation.String(), i.typeLabel(val))
 	}
 
 	// If the variable already exists in any enclosing scope, update it there.
@@ -1154,7 +876,8 @@ func newError(format string, a ...interface{}) *Error {
 // This is a convenience function for error checking throughout the interpreter.
 func isError(obj Object) bool {
 	if obj != nil {
-		return obj.Type() == ERROR_OBJ
+		t := obj.Type()
+		return t == ERROR_OBJ || t == THROW_OBJ
 	}
 	return false
 }
@@ -1172,6 +895,8 @@ type Struct struct {
 	TypeParams    []string // Generic type parameters (e.g., ["A", "B"])
 	Fields        map[string]Object
 	DefaultValues map[string]Object
+	Order         []string
+	Methods       map[string]*Function
 }
 
 func (s *Struct) Type() ObjectType { return STRUCT_OBJ }
@@ -1206,6 +931,7 @@ type StructInstance struct {
 	Struct   *Struct
 	TypeArgs []string // Resolved type arguments (e.g., ["int", "string"])
 	Fields   map[string]Object
+	Frozen   bool
 }
 
 func (si *StructInstance) Type() ObjectType { return STRUCT_INSTANCE_OBJ }
@@ -1266,6 +992,7 @@ func (i *Interpreter) evalStructStatement(node *ast.StructStatement) Object {
 		TypeParams:    node.TypeParams,
 		Fields:        make(map[string]Object),
 		DefaultValues: make(map[string]Object),
+		Methods:       make(map[string]*Function),
 	}
 
 	// Store the struct definition in the environment
@@ -1274,6 +1001,12 @@ func (i *Interpreter) evalStructStatement(node *ast.StructStatement) Object {
 	// Process field declarations
 	for _, stmt := range node.Fields {
 		if exprStmt, ok := stmt.(*ast.ExpressionStatement); ok {
+			if fl, isFn := exprStmt.Expression.(*ast.FunctionLiteral); isFn && fl.Name != nil && fl.Receiver == nil {
+				fn := i.newFunction(fl)
+				fn.Name = fl.Name.Value
+				structObj.Methods[fn.Name] = fn
+				continue
+			}
 			// Check if it's an assignment with a value
 			if assignment, ok := exprStmt.Expression.(*ast.AssignmentExpression); ok {
 				fieldName := assignment.Name.Value
@@ -1285,20 +1018,23 @@ func (i *Interpreter) evalStructStatement(node *ast.StructStatement) Object {
 						return fieldValue
 					}
 					structObj.Fields[fieldName] = fieldValue
+					structObj.Order = append(structObj.Order, fieldName)
 					structObj.DefaultValues[fieldName] = fieldValue
 				} else if assignment.TypeAnnotation != nil {
-					// If it only has a type annotation, use nil as default value
+					structObj.Order = append(structObj.Order, fieldName)
 					structObj.Fields[fieldName] = &Nil{}
 					structObj.DefaultValues[fieldName] = &Nil{}
 				}
 			} else if typedIdent, ok := exprStmt.Expression.(*ast.TypedIdentifier); ok {
 				// Handle field declarations like: name: string
 				fieldName := typedIdent.Identifier.Value
+				structObj.Order = append(structObj.Order, fieldName)
 				structObj.Fields[fieldName] = &Nil{} // Default value for fields with just type annotations
 				structObj.DefaultValues[fieldName] = &Nil{}
 			} else if ident, ok := exprStmt.Expression.(*ast.Identifier); ok {
 				// Handle field declarations like: name
 				fieldName := ident.Value
+				structObj.Order = append(structObj.Order, fieldName)
 				structObj.Fields[fieldName] = &Nil{} // Default value for fields without type annotations
 				structObj.DefaultValues[fieldName] = &Nil{}
 			}
@@ -1306,117 +1042,6 @@ func (i *Interpreter) evalStructStatement(node *ast.StructStatement) Object {
 	}
 
 	return structObj
-}
-
-// evalStructLiteral evaluates a struct literal (instantiation),
-// creating a new instance of a struct or class.
-func (i *Interpreter) evalStructLiteral(node *ast.StructLiteral) Object {
-	// Look up the struct/class definition
-	structObj, ok := i.env.Get(node.Type)
-	if !ok {
-		return newError("undefined type: %s", node.Type)
-	}
-
-	// If it's a builtin function (e.g., Channel()), call it
-	if builtin, ok := structObj.(*Builtin); ok {
-		args := []Object{}
-		for _, expr := range node.Fields {
-			val := i.eval(expr)
-			if isError(val) {
-				return val
-			}
-			args = append(args, val)
-		}
-		return builtin.Fn(args...)
-	}
-
-	// If it's a class, use class constructor
-	if classObj, ok := structObj.(*ClassObject); ok {
-		// Validate type args count if provided
-		if len(node.TypeArgs) > 0 && len(classObj.TypeParams) > 0 {
-			if len(node.TypeArgs) != len(classObj.TypeParams) {
-				return newError("wrong number of type arguments for %s: expected %d, got %d",
-					node.Type, len(classObj.TypeParams), len(node.TypeArgs))
-			}
-		}
-		// Evaluate field expressions as positional args
-		args := []Object{}
-		for _, expr := range node.Fields {
-			val := i.eval(expr)
-			if isError(val) {
-				return val
-			}
-			args = append(args, val)
-		}
-		instance := i.callClassConstructor(classObj, args)
-		// Store type args on the instance
-		if classInst, ok := instance.(*ClassInstance); ok && len(node.TypeArgs) > 0 {
-			classInst.TypeArgs = node.TypeArgs
-		}
-		return instance
-	}
-
-	structType, ok := structObj.(*Struct)
-	if !ok {
-		return newError("not a struct type: %s", node.Type)
-	}
-
-	// Validate type args count if provided
-	if len(node.TypeArgs) > 0 && len(structType.TypeParams) > 0 {
-		if len(node.TypeArgs) != len(structType.TypeParams) {
-			return newError("wrong number of type arguments for %s: expected %d, got %d",
-				node.Type, len(structType.TypeParams), len(node.TypeArgs))
-		}
-	}
-
-	// Create a new struct instance with default values
-	instance := &StructInstance{
-		Struct:   structType,
-		TypeArgs: node.TypeArgs,
-		Fields:   make(map[string]Object),
-	}
-
-	// Copy default values
-	for field, value := range structType.DefaultValues {
-		instance.Fields[field] = value
-	}
-
-	// Build type param -> concrete type mapping if type args are provided
-	var typeArgMap map[string]string
-	if len(node.TypeArgs) > 0 && len(structType.TypeParams) > 0 {
-		typeArgMap = make(map[string]string)
-		for idx, tp := range structType.TypeParams {
-			if idx < len(node.TypeArgs) {
-				typeArgMap[tp] = node.TypeArgs[idx]
-			}
-		}
-	}
-
-	// Apply provided field values
-	for field, valueExpr := range node.Fields {
-		// Check if the field exists
-		if _, exists := structType.Fields[field]; !exists {
-			return newError("undefined field '%s' in struct '%s'", field, node.Type)
-		}
-
-		// Evaluate the field value
-		value := i.eval(valueExpr)
-		if isError(value) {
-			return value
-		}
-
-		// If we have type arg mappings, validate field type
-		if typeArgMap != nil {
-			// Check if the field's declared type is a type parameter
-			if err := i.validateFieldTypeArg(field, value, typeArgMap); err != nil {
-				return err
-			}
-		}
-
-		instance.Fields[field] = value
-	}
-
-	return instance
 }
 
 // validateArrayWithDepth recursively validates arrays at the specified nesting depth
@@ -1468,571 +1093,6 @@ func (i *Interpreter) GetLastError() Object {
 	return i.lastError
 }
 
-// evalForLoop evaluates a for loop statement.
-// It iterates over a collection (array, range, hash, etc.) and executes the body for each element.
-// Supports: for x in array, for k, v in hash
-func (i *Interpreter) evalForLoop(node *ast.ForLoop) Object {
-	// Evaluate the collection to iterate over
-	collection := i.eval(node.Collection)
-	if isError(collection) {
-		return collection
-	}
-
-	// Handle hash iteration: for k, v in hash
-	if hash, ok := collection.(*Hash); ok && node.ValueIterator != nil {
-		return i.evalForLoopHash(node, hash)
-	}
-
-	// Convert range to array if needed
-	if rangeObj, ok := collection.(*Range); ok {
-		collection = rangeObj.ToArray()
-	}
-
-	// Check if the collection is an array
-	array, ok := collection.(*Array)
-	if !ok {
-		return newError("for loop collection must be an array, range, or hash, got %s", collection.Type())
-	}
-
-	var result Object = &Nil{}
-	for idx, element := range array.Elements {
-		i.env.Set(node.Iterator.Value, element)
-		// If there's a value iterator on an array, set it to the index
-		if node.ValueIterator != nil {
-			i.env.Set(node.ValueIterator.Value, &Integer{Value: int64(idx)})
-		}
-
-		result = i.evalBlockStatement(node.Body)
-
-		if isError(result) {
-			break
-		}
-		if _, ok := result.(*BreakSignal); ok {
-			break
-		}
-		if _, ok := result.(*ContinueSignal); ok {
-			continue
-		}
-		if _, ok := result.(*ReturnValue); ok {
-			return result
-		}
-	}
-
-	// Don't leak break/continue signals out of the loop
-	if _, ok := result.(*BreakSignal); ok {
-		return &Nil{}
-	}
-	if _, ok := result.(*ContinueSignal); ok {
-		return &Nil{}
-	}
-
-	return result
-}
-
-// evalForLoopHash iterates over a hash, binding key and value to the iterators.
-func (i *Interpreter) evalForLoopHash(node *ast.ForLoop, hash *Hash) Object {
-	var result Object = &Nil{}
-
-	for _, key := range hash.Order {
-		value := hash.Pairs[key]
-		i.env.Set(node.Iterator.Value, &String{Value: key})
-		i.env.Set(node.ValueIterator.Value, value)
-
-		result = i.evalBlockStatement(node.Body)
-
-		if isError(result) {
-			break
-		}
-		if _, ok := result.(*BreakSignal); ok {
-			break
-		}
-		if _, ok := result.(*ContinueSignal); ok {
-			continue
-		}
-		if _, ok := result.(*ReturnValue); ok {
-			return result
-		}
-	}
-
-	if _, ok := result.(*BreakSignal); ok {
-		return &Nil{}
-	}
-	if _, ok := result.(*ContinueSignal); ok {
-		return &Nil{}
-	}
-
-	return result
-}
-
-// evalIndexExpression evaluates an index expression for array access.
-// Example: arr[0]
-func (i *Interpreter) evalIndexExpression(node *ast.IndexExpression) Object {
-	// Evaluate the left side (the array)
-	left := i.eval(node.Left)
-	if isError(left) {
-		return left
-	}
-
-	// Evaluate the index
-	index := i.eval(node.Index)
-	if isError(index) {
-		return index
-	}
-
-	switch obj := left.(type) {
-	case *Array:
-		idx, ok := index.(*Integer)
-		if !ok {
-			return newError("array index must be an integer, got %s", index.Type())
-		}
-		idxVal := idx.Value
-		// Support negative indexing: arr[-1] is the last element
-		if idxVal < 0 {
-			idxVal = int64(len(obj.Elements)) + idxVal
-		}
-		if idxVal < 0 || idxVal >= int64(len(obj.Elements)) {
-			return newError("array index out of bounds: %d", idx.Value)
-		}
-		return obj.Elements[idxVal]
-	case *String:
-		idx, ok := index.(*Integer)
-		if !ok {
-			return newError("string index must be an integer, got %s", index.Type())
-		}
-		runes := []rune(obj.Value)
-		idxVal := idx.Value
-		if idxVal < 0 {
-			idxVal = int64(len(runes)) + idxVal
-		}
-		if idxVal < 0 || idxVal >= int64(len(runes)) {
-			return newError("string index out of bounds: %d", idx.Value)
-		}
-		return &String{Value: string(runes[idxVal])}
-	case *Hash:
-		keyStr := index.Inspect()
-		val, exists := obj.Pairs[keyStr]
-		if !exists {
-			return &Nil{}
-		}
-		return val
-	default:
-		return newError("index operator not supported for %s", left.Type())
-	}
-}
-
-// evalDotExpression evaluates a dot expression for struct field access
-// or as a zero-argument method call on any value (e.g., "hello".len).
-// Example: person.name, [1,2,3].len, "hello".type
-func (i *Interpreter) evalDotExpression(node *ast.DotExpression) Object {
-	// Evaluate the left side
-	left := i.eval(node.Left)
-	if isError(left) {
-		return left
-	}
-
-	fieldName := node.Field.Value
-
-	// Check if the left side is a SuperProxy (for super.method())
-	if superProxy, ok := left.(*SuperProxy); ok {
-		// Look up the method on the parent class, tracking which class defines it
-		definingClass, method := findMethodInChain(superProxy.Parent, fieldName)
-		if method != nil {
-			return i.callMethodOnInstanceFromClass(superProxy.Instance, definingClass, method, []Object{})
-		}
-		return newError("undefined method '%s' in parent class '%s'", fieldName, superProxy.Parent.Name)
-	}
-
-	// Check if the left side is a class instance
-	if classInst, ok := left.(*ClassInstance); ok {
-		// Check instance fields
-		if field, ok := classInst.Fields[fieldName]; ok {
-			return field
-		}
-		// Check methods — return as zero-arg call
-		if method, found := classInst.Class.GetMethod(fieldName); found {
-			return i.callMethodOnInstance(classInst, method, []Object{})
-		}
-		// Fall through to builtin method lookup
-	}
-
-	// Check if the left side is a struct instance
-	if structInstance, ok := left.(*StructInstance); ok {
-		// First check if the field exists in the instance
-		if field, ok := structInstance.Fields[fieldName]; ok {
-			return field
-		}
-
-		// If not found in the instance, check if it exists in the struct type definition
-		if structInstance.Struct != nil {
-			if _, ok := structInstance.Struct.Fields[fieldName]; ok {
-				return newError("field '%s' exists in struct definition but not in instance", fieldName)
-			}
-		}
-
-		// Field not found on struct — fall through to try as method call
-	}
-
-	// Check if the left side is a VibeError — support .message, .data, .type
-	if vibeErr, ok := left.(*VibeError); ok {
-		switch fieldName {
-		case "message":
-			return &String{Value: vibeErr.Message}
-		case "data":
-			return vibeErr.Data
-		case "type":
-			return &String{Value: "Error"}
-		}
-	}
-
-	// Check if the left side is a TimeObject — support .year, .month, etc.
-	if timeObj, ok := left.(*TimeObject); ok {
-		switch fieldName {
-		case "year":
-			return &Integer{Value: int64(timeObj.Value.Year())}
-		case "month":
-			return &Integer{Value: int64(timeObj.Value.Month())}
-		case "day":
-			return &Integer{Value: int64(timeObj.Value.Day())}
-		case "hour":
-			return &Integer{Value: int64(timeObj.Value.Hour())}
-		case "minute":
-			return &Integer{Value: int64(timeObj.Value.Minute())}
-		case "second":
-			return &Integer{Value: int64(timeObj.Value.Second())}
-		case "unix":
-			return &Integer{Value: timeObj.Value.Unix()}
-		}
-		// Fall through to method lookup (e.g., format_time)
-	}
-
-	// Check if the left side is a hash — support dot access for keys
-	if hash, ok := left.(*Hash); ok {
-		if val, exists := hash.Pairs[fieldName]; exists {
-			return val
-		}
-		// Key not found — fall through to try as method call
-	}
-
-	// Not a struct or field not found — try as a zero-argument method call.
-	// This allows "hello".len, [1,2,3].first, 42.type, etc.
-	if fn, ok := i.env.Get(fieldName); ok {
-		return i.applyFunction(fn, []Object{left})
-	}
-
-	// Nothing matched
-	if structInstance, ok := left.(*StructInstance); ok {
-		return newError("undefined field '%s' in struct '%s'", fieldName, structInstance.Struct.Name)
-	}
-	return newError("undefined method '%s' for %s", fieldName, left.Type())
-}
-
-// evalInfixExpression evaluates an infix expression like 1 + 2, a == b, etc.
-func (i *Interpreter) evalInfixExpression(node *ast.InfixExpression) Object {
-	// Short-circuit evaluation for logical operators
-	if node.Operator == "&&" {
-		left := i.eval(node.Left)
-		if isError(left) {
-			return left
-		}
-		if !isTruthy(left) {
-			return &Boolean{Value: false}
-		}
-		right := i.eval(node.Right)
-		if isError(right) {
-			return right
-		}
-		return &Boolean{Value: isTruthy(right)}
-	}
-	if node.Operator == "||" {
-		left := i.eval(node.Left)
-		if isError(left) {
-			return left
-		}
-		if isTruthy(left) {
-			return &Boolean{Value: true}
-		}
-		right := i.eval(node.Right)
-		if isError(right) {
-			return right
-		}
-		return &Boolean{Value: isTruthy(right)}
-	}
-
-	left := i.eval(node.Left)
-	if isError(left) {
-		return left
-	}
-
-	right := i.eval(node.Right)
-	if isError(right) {
-		return right
-	}
-
-	switch {
-	// Integer operations
-	case left.Type() == INTEGER_OBJ && right.Type() == INTEGER_OBJ:
-		return i.evalIntegerInfixExpression(node.Operator, left, right)
-
-	// Float operations
-	case left.Type() == FLOAT_OBJ && right.Type() == FLOAT_OBJ:
-		return i.evalFloatInfixExpression(node.Operator, left, right)
-
-	// Mixed integer and float operations
-	case (left.Type() == INTEGER_OBJ && right.Type() == FLOAT_OBJ) ||
-		(left.Type() == FLOAT_OBJ && right.Type() == INTEGER_OBJ):
-		return i.evalMixedNumberInfixExpression(node.Operator, left, right)
-
-	// String operations
-	case left.Type() == STRING_OBJ && right.Type() == STRING_OBJ:
-		return i.evalStringInfixExpression(node.Operator, left, right)
-
-	// Boolean operations
-	case left.Type() == BOOLEAN_OBJ && right.Type() == BOOLEAN_OBJ:
-		return i.evalBooleanInfixExpression(node.Operator, left, right)
-
-	// Array operations
-	case left.Type() == ARRAY_OBJ && right.Type() == ARRAY_OBJ:
-		return i.evalArrayInfixExpression(node.Operator, left, right)
-
-	// String * integer repetition
-	case node.Operator == "*" && left.Type() == STRING_OBJ && right.Type() == INTEGER_OBJ:
-		str := left.(*String).Value
-		count := right.(*Integer).Value
-		if count < 0 {
-			return newError("string repetition count must be non-negative")
-		}
-		return &String{Value: strings.Repeat(str, int(count))}
-
-	// String + any other type: auto-convert to string and concatenate
-	case node.Operator == "+" && (left.Type() == STRING_OBJ || right.Type() == STRING_OBJ):
-		return &String{Value: left.Inspect() + right.Inspect()}
-
-	default:
-		return newError("unsupported operator %s for types %s and %s",
-			node.Operator, left.Type(), right.Type())
-	}
-}
-
-// evalArrayInfixExpression evaluates infix expressions with array operands
-func (i *Interpreter) evalArrayInfixExpression(operator string, left, right Object) Object {
-	leftArray := left.(*Array)
-	rightArray := right.(*Array)
-
-	switch operator {
-	case "+":
-		// Array concatenation
-		newElements := make([]Object, len(leftArray.Elements)+len(rightArray.Elements))
-		copy(newElements, leftArray.Elements)
-		copy(newElements[len(leftArray.Elements):], rightArray.Elements)
-		return &Array{Elements: newElements}
-	default:
-		return newError("unknown operator: %s %s %s", left.Type(), operator, right.Type())
-	}
-}
-
-// evalIntegerInfixExpression evaluates an infix expression with integer operands.
-func (i *Interpreter) evalIntegerInfixExpression(operator string, left, right Object) Object {
-	leftVal := left.(*Integer).Value
-	rightVal := right.(*Integer).Value
-
-	switch operator {
-	case "+":
-		return &Integer{Value: leftVal + rightVal}
-	case "-":
-		return &Integer{Value: leftVal - rightVal}
-	case "*":
-		return &Integer{Value: leftVal * rightVal}
-	case "/":
-		if rightVal == 0 {
-			return newError("division by zero")
-		}
-		return &Integer{Value: leftVal / rightVal}
-	case "%":
-		if rightVal == 0 {
-			return newError("division by zero")
-		}
-		return &Integer{Value: leftVal % rightVal}
-	case "**":
-		return &Integer{Value: int64(math.Pow(float64(leftVal), float64(rightVal)))}
-	case "<":
-		return &Boolean{Value: leftVal < rightVal}
-	case ">":
-		return &Boolean{Value: leftVal > rightVal}
-	case "<=":
-		return &Boolean{Value: leftVal <= rightVal}
-	case ">=":
-		return &Boolean{Value: leftVal >= rightVal}
-	case "==":
-		return &Boolean{Value: leftVal == rightVal}
-	case "!=":
-		return &Boolean{Value: leftVal != rightVal}
-	default:
-		return newError("unknown operator: %s %s %s", left.Type(), operator, right.Type())
-	}
-}
-
-// evalFloatInfixExpression evaluates an infix expression with float operands.
-func (i *Interpreter) evalFloatInfixExpression(operator string, left, right Object) Object {
-	leftVal := left.(*Float).Value
-	rightVal := right.(*Float).Value
-
-	switch operator {
-	case "+":
-		return &Float{Value: leftVal + rightVal}
-	case "-":
-		return &Float{Value: leftVal - rightVal}
-	case "*":
-		return &Float{Value: leftVal * rightVal}
-	case "/":
-		if rightVal == 0.0 {
-			return newError("division by zero")
-		}
-		return &Float{Value: leftVal / rightVal}
-	case "**":
-		return &Float{Value: math.Pow(leftVal, rightVal)}
-	case "<":
-		return &Boolean{Value: leftVal < rightVal}
-	case ">":
-		return &Boolean{Value: leftVal > rightVal}
-	case "<=":
-		return &Boolean{Value: leftVal <= rightVal}
-	case ">=":
-		return &Boolean{Value: leftVal >= rightVal}
-	case "==":
-		return &Boolean{Value: leftVal == rightVal}
-	case "!=":
-		return &Boolean{Value: leftVal != rightVal}
-	default:
-		return newError("unknown operator: %s %s %s", left.Type(), operator, right.Type())
-	}
-}
-
-// evalMixedNumberInfixExpression evaluates an infix expression with mixed number operands (int and float).
-func (i *Interpreter) evalMixedNumberInfixExpression(operator string, left, right Object) Object {
-	var leftVal, rightVal float64
-
-	if left.Type() == INTEGER_OBJ {
-		leftVal = float64(left.(*Integer).Value)
-	} else {
-		leftVal = left.(*Float).Value
-	}
-
-	if right.Type() == INTEGER_OBJ {
-		rightVal = float64(right.(*Integer).Value)
-	} else {
-		rightVal = right.(*Float).Value
-	}
-
-	switch operator {
-	case "+":
-		return &Float{Value: leftVal + rightVal}
-	case "-":
-		return &Float{Value: leftVal - rightVal}
-	case "*":
-		return &Float{Value: leftVal * rightVal}
-	case "/":
-		if rightVal == 0.0 {
-			return newError("division by zero")
-		}
-		return &Float{Value: leftVal / rightVal}
-	case "**":
-		return &Float{Value: math.Pow(leftVal, rightVal)}
-	case "<":
-		return &Boolean{Value: leftVal < rightVal}
-	case ">":
-		return &Boolean{Value: leftVal > rightVal}
-	case "<=":
-		return &Boolean{Value: leftVal <= rightVal}
-	case ">=":
-		return &Boolean{Value: leftVal >= rightVal}
-	case "==":
-		return &Boolean{Value: leftVal == rightVal}
-	case "!=":
-		return &Boolean{Value: leftVal != rightVal}
-	default:
-		return newError("unknown operator: %s %s %s", left.Type(), operator, right.Type())
-	}
-}
-
-// evalStringInfixExpression evaluates an infix expression with string operands.
-func (i *Interpreter) evalStringInfixExpression(operator string, left, right Object) Object {
-	leftVal := left.(*String).Value
-	rightVal := right.(*String).Value
-
-	switch operator {
-	case "+":
-		return &String{Value: leftVal + rightVal}
-	case "==":
-		return &Boolean{Value: leftVal == rightVal}
-	case "!=":
-		return &Boolean{Value: leftVal != rightVal}
-	case "<":
-		return &Boolean{Value: leftVal < rightVal}
-	case ">":
-		return &Boolean{Value: leftVal > rightVal}
-	case "<=":
-		return &Boolean{Value: leftVal <= rightVal}
-	case ">=":
-		return &Boolean{Value: leftVal >= rightVal}
-	default:
-		return newError("unknown operator: %s %s %s", left.Type(), operator, right.Type())
-	}
-}
-
-// evalBooleanInfixExpression evaluates an infix expression with boolean operands.
-func (i *Interpreter) evalBooleanInfixExpression(operator string, left, right Object) Object {
-	leftVal := left.(*Boolean).Value
-	rightVal := right.(*Boolean).Value
-
-	switch operator {
-	case "==":
-		return &Boolean{Value: leftVal == rightVal}
-	case "!=":
-		return &Boolean{Value: leftVal != rightVal}
-	default:
-		return newError("unknown operator: %s %s %s", left.Type(), operator, right.Type())
-	}
-}
-
-// evalPrefixExpression evaluates a prefix expression like -5 or !true.
-func (i *Interpreter) evalPrefixExpression(node *ast.PrefixExpression) Object {
-	right := i.eval(node.Right)
-	if isError(right) {
-		return right
-	}
-
-	switch node.Operator {
-	case "!":
-		return i.evalBangOperator(right)
-	case "-":
-		return i.evalMinusPrefixOperator(right)
-	default:
-		return newError("unknown operator: %s%s", node.Operator, right.Type())
-	}
-}
-
-func (i *Interpreter) evalBangOperator(right Object) Object {
-	switch obj := right.(type) {
-	case *Boolean:
-		return &Boolean{Value: !obj.Value}
-	case *Nil:
-		return &Boolean{Value: true}
-	default:
-		return &Boolean{Value: false}
-	}
-}
-
-func (i *Interpreter) evalMinusPrefixOperator(right Object) Object {
-	switch obj := right.(type) {
-	case *Integer:
-		return &Integer{Value: -obj.Value}
-	case *Float:
-		return &Float{Value: -obj.Value}
-	default:
-		return newError("unknown operator: -%s", right.Type())
-	}
-}
-
 // evalIfExpression evaluates an if expression.
 func (i *Interpreter) evalIfExpression(node *ast.IfExpression) Object {
 	condition := i.eval(node.Condition)
@@ -2062,161 +1122,37 @@ func isTruthy(obj Object) bool {
 	}
 }
 
-// evalStringInterpolation evaluates a string with interpolated expressions.
-func (i *Interpreter) evalStringInterpolation(node *ast.StringInterpolationLiteral) Object {
-	var out bytes.Buffer
-
-	for idx, part := range node.Parts {
-		out.WriteString(part)
-
-		if idx < len(node.Expressions) {
-			val := i.eval(node.Expressions[idx])
-			if isError(val) {
-				return val
-			}
-			out.WriteString(val.Inspect())
-		}
-	}
-
-	return &String{Value: out.String()}
-}
-
-// Range represents a range of integer values.
-type Range struct {
-	Start     int64
-	End       int64
-	Exclusive bool
-}
-
-func (r *Range) Type() ObjectType { return "RANGE" }
-func (r *Range) Inspect() string {
-	if r.Exclusive {
-		return fmt.Sprintf("%d...%d", r.Start, r.End)
-	}
-	return fmt.Sprintf("%d..%d", r.Start, r.End)
-}
-
-// ToArray converts a Range to an Array of Integers.
-func (r *Range) ToArray() *Array {
-	var elements []Object
-	if r.Start <= r.End {
-		end := r.End
-		if r.Exclusive {
-			end--
-		}
-		for val := r.Start; val <= end; val++ {
-			elements = append(elements, &Integer{Value: val})
-		}
-	} else {
-		end := r.End
-		if r.Exclusive {
-			end++
-		}
-		for val := r.Start; val >= end; val-- {
-			elements = append(elements, &Integer{Value: val})
-		}
-	}
-	return &Array{Elements: elements}
-}
-
-// evalRangeExpression evaluates a range expression like 1..5 or 1...5.
-func (i *Interpreter) evalRangeExpression(node *ast.RangeExpression) Object {
-	start := i.eval(node.Start)
-	if isError(start) {
-		return start
-	}
-
-	end := i.eval(node.End)
-	if isError(end) {
-		return end
-	}
-
-	startInt, ok := start.(*Integer)
-	if !ok {
-		return newError("range start must be an integer, got %s", start.Type())
-	}
-
-	endInt, ok := end.(*Integer)
-	if !ok {
-		return newError("range end must be an integer, got %s", end.Type())
-	}
-
-	return &Range{
-		Start:     startInt.Value,
-		End:       endInt.Value,
-		Exclusive: node.Exclusive,
-	}
-}
-
-// evalRangeCallExpression evaluates a Range() constructor call.
-func (i *Interpreter) evalRangeCallExpression(node *ast.RangeCallExpression) Object {
-	start := i.eval(node.Start)
-	if isError(start) {
-		return start
-	}
-
-	end := i.eval(node.End)
-	if isError(end) {
-		return end
-	}
-
-	startInt, ok := start.(*Integer)
-	if !ok {
-		return newError("Range start must be an integer, got %s", start.Type())
-	}
-
-	endInt, ok := end.(*Integer)
-	if !ok {
-		return newError("Range end must be an integer, got %s", end.Type())
-	}
-
-	return &Range{
-		Start:     startInt.Value,
-		End:       endInt.Value,
-		Exclusive: node.Exclusive,
-	}
-}
-
 // ClassObject represents a class definition in Vibe.
 type ClassObject struct {
 	Name       string
 	TypeParams []string // Generic type parameters (e.g., ["T", "U"])
 	Parent     *ClassObject
 	Methods    map[string]*Function
+	IsModule   bool
+	Statics    map[string]*Function        // singleton (def self.x) methods
+	Includes   []*ClassObject              // mixed-in modules, in inclusion order
+	Extends    []*ClassObject              // modules whose methods become singleton methods
+	Call       func(args ...Object) Object // conversion function, e.g. Integer("5")
+	Natives    map[string]nativeMethod
+	NativeStat map[string]nativeMethod
+	Consts     map[string]Object
+	Ivars      map[string]Object         // class-level instance variables
+	Cvars      map[string]Object         // @@class variables
+	Props      []string                  // declared properties
+	PropTypes  map[string]ast.Expression // declared types of typed attr_* properties
+	Frozen     bool
+	Singleton  bool
 }
 
 func (c *ClassObject) Type() ObjectType { return CLASS_OBJ }
 func (c *ClassObject) Inspect() string  { return "<class " + c.Name + ">" }
-
-// GetMethod looks up a method on the class or any parent class.
-func (c *ClassObject) GetMethod(name string) (*Function, bool) {
-	if fn, ok := c.Methods[name]; ok {
-		return fn, true
-	}
-	if c.Parent != nil {
-		return c.Parent.GetMethod(name)
-	}
-	return nil, false
-}
-
-// findMethodInChain searches for a method starting from the given class,
-// returning both the class that defines the method and the method itself.
-// This is critical for correct super resolution in multi-level inheritance.
-func findMethodInChain(class *ClassObject, name string) (*ClassObject, *Function) {
-	if fn, ok := class.Methods[name]; ok {
-		return class, fn
-	}
-	if class.Parent != nil {
-		return findMethodInChain(class.Parent, name)
-	}
-	return nil, nil
-}
 
 // ClassInstance represents an instance of a class.
 type ClassInstance struct {
 	Class    *ClassObject
 	TypeArgs []string // Resolved type arguments (e.g., ["int", "string"])
 	Fields   map[string]Object
+	Frozen   bool
 }
 
 func (ci *ClassInstance) Type() ObjectType { return INSTANCE_OBJ }
@@ -2247,6 +1183,14 @@ type Function struct {
 	ParamTypes []ast.Expression // Parameter type annotations for type checking
 	ReturnType ast.Expression   // Return type annotation
 	Variadic   bool             // Whether the last parameter is variadic (*args)
+
+	Keyword    []bool          // parallel to Parameters: keyword parameters
+	KwRest     *ast.Identifier // **opts
+	BlockParam *ast.Identifier // &block
+	IsBlock    bool            // created from a do/end or { } block
+	IsLambda   bool            // created by lambda / -> and returns locally
+	Frame      *Frame          // method activation a block was created in
+	Visibility string          // "", "private" or "protected"
 }
 
 func (f *Function) Type() ObjectType { return FUNCTION_OBJ }
@@ -2260,26 +1204,4 @@ func (f *Function) Inspect() string {
 	out.WriteString(strings.Join(params, ", "))
 	out.WriteString(") { ... }")
 	return out.String()
-}
-
-// evalFunctionLiteral evaluates a function literal, creating a closure.
-func (i *Interpreter) evalFunctionLiteral(node *ast.FunctionLiteral) Object {
-	fn := &Function{
-		Parameters: node.Parameters,
-		Defaults:   node.ParamDefaults,
-		Body:       node.Body,
-		Env:        i.env,
-		TypeParams: node.TypeParams,
-		ParamTypes: node.ParamTypes,
-		ReturnType: node.ReturnType,
-		Variadic:   node.Variadic,
-	}
-
-	// If it's a named function (def), bind it in the environment
-	if node.Name != nil {
-		fn.Name = node.Name.Value
-		i.env.Set(node.Name.Value, fn)
-	}
-
-	return fn
 }

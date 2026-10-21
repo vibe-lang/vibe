@@ -602,3 +602,56 @@ Imports evaluate the file in the current scope, so all definitions become availa
 | Function | Description | Example |
 |----------|-------------|---------|
 | `exit(code?)` | Exit the program | `exit(1)` |
+
+
+## Ruby-Style Syntax
+
+Vibe accepts a large Ruby-flavoured surface on top of the core language. Calls still use parentheses (`f()` calls, bare `f` is the function value); inside classes, bare method names and `block_given?` work as in Ruby.
+
+### Operators
+
+- `/` and `%` on integers use floor semantics (`-7 / 2 == -4`, `-7 % 3 == 2`); dividing by zero is an error.
+- `**` is exponentiation; `-5.abs` is `(-5).abs`, while `-2 ** 2` is `-4`.
+- `&&` / `||` return one of their operands; `??` substitutes for `nil`; `||=`, `&&=`, `**=`, `<<=` and friends are supported.
+- `<=>`, `===`, `=~`, `!~`, `&.` (safe navigation), `::` (constants) and `f >> g` / `f << g` (proc composition).
+
+### Strings, collections and ranges
+
+- Strings: `sub`, `gsub` (regex, string, hash or block), `scan`, `tr`, `center`, `ljust`, `rjust`, `split`, `to_i`, `format` (`%d %f %s %x %05.1f %-3d`), slicing with indexes and ranges.
+- Arrays and hashes implement the usual Enumerable methods (`map`, `select`, `reduce`, `group_by`, `each_slice`, `zip`, `sort_by`, `tally`, ...). Hashes iterate in insertion order and support `Hash.new(default)` / `Hash.new { |h, k| ... }`.
+- Ranges: `1..5`, `1...5`, endless `1..`, string ranges (`"a".."e"`), `step`, `to_a`. `freeze` makes arrays, hashes and strings immutable.
+- Passing a function where a block is expected works: `arr.map(double)`.
+
+### Blocks, procs and methods
+
+- `{ |x| ... }` and `do |x| ... end` blocks, `yield`, `block_given?`, `lambda`, `proc`, `-> (x) { }`, `curry`, `break` / `next` with values.
+- Parameters: defaults, `*rest`, `key:`, `key: default`, `**opts`, `&blk`. A keyword-style call such as `f(item: 3)` binds to a plain parameter named `item`.
+- Uniform function call syntax: `x.f(a)` falls back to `f(x, a)`.
+
+### Classes, modules and structs
+
+- `class A < B`, `module`, `include` / `extend`, `attr_accessor` / `attr_reader` / `attr_writer`, `private` / `protected`, `def self.x`, `super` / `super(args)` / `super.method`, `method_missing`, `respond_to?`, `Comparable` and `Enumerable`.
+- Built-in classes can be used in checks: `1.is_a?(Integer)`.
+- Structs can define methods: `struct P; x: int; def dbl() self.x * 2 end; end`.
+
+### Exceptions
+
+`begin / rescue Klass => e / else / ensure / retry`, `raise Klass, "msg"`, an exception hierarchy (`StandardError`, `ArgumentError`, `TypeError`, `ZeroDivisionError`, `NoMethodError`, ...), user subclasses (`class MyErr < Error`), and structured errors `Error("msg", data)` with `.message`, `.data`.
+
+### Pattern matching
+
+`case value / in [a, b] / in {name:} / in x if guard / else / end`.
+
+### Math
+
+`import "math"` provides `Math.sqrt`, `Math.floor`, `Math.PI`, ... and the bare functions `sqrt`, `floor`, `pow`, ...; `min` / `max` accept several numbers or one array.
+
+### Runtime type checking
+
+Annotations are enforced at run time, which is how Vibe brings types to Ruby-style code:
+
+- Parameters (`def f(a: int)`), return types (`def f(): string`) and typed variables (`x: int = 1`) raise a `TypeError` on mismatch.
+- Supported types: `int`, `float` (accepts ints), `string`, `boolean`, `nil`, `symbol`, `any`, `array`/`hash`, `T[]`, `Array<T>`, `Hash<K, V>`, tuples `[int, string]`, unions `int | string`, optionals `string?`, function types `(int) -> int`, classes, structs, `type` aliases and `interface`s (satisfied structurally by having the listed methods).
+- Generic parameters (`def f<T>(a: T): T`, `class Box<T>`) accept any value; `Box<int>.new(3)` is allowed.
+- Typed properties: `attr_accessor name: string, age: int` (also `attr_reader`/`attr_writer`) type-checks the setter.
+- `class Circle implements Shape, Drawable` verifies when the class is defined that every interface method exists.

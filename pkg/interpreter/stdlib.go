@@ -326,6 +326,13 @@ func loadMath(env *Environment) {
 		}
 		return &Float{Value: rand.Float64()}
 	}})
+
+	for _, name := range []string{"sqrt", "floor", "ceil", "round", "pow", "log", "sin", "cos", "tan", "random"} {
+		if fn, ok := env.Get(name); ok {
+			mathNs.Pairs[name] = fn
+			mathNs.Order = append(mathNs.Order, name)
+		}
+	}
 }
 
 // toFloat64 converts an Object to float64 pointer, or nil if not numeric.
@@ -349,10 +356,11 @@ func toFloat64(obj Object) *float64 {
 type RegexObject struct {
 	Pattern string
 	Re      *regexp.Regexp
+	Flags   string
 }
 
-func (r *RegexObject) Type() ObjectType { return "REGEX" }
-func (r *RegexObject) Inspect() string  { return "Regex(" + r.Pattern + ")" }
+func (r *RegexObject) Type() ObjectType { return REGEX_OBJ }
+func (r *RegexObject) Inspect() string  { return "/" + r.Pattern + "/" + r.Flags }
 
 func loadRegex(env *Environment) {
 	// Regex(pattern) constructor

@@ -9,6 +9,12 @@ type Token struct {
 	Literal string
 	Line    int
 	Column  int
+	// NLBefore reports whether a line break separates this token from the previous one.
+	NLBefore bool
+	// SpaceBefore reports whether whitespace, a comment or a line break precedes this token.
+	SpaceBefore bool
+	// Extra carries auxiliary data: regex flags, or the kind ("w" or "i") of a word list.
+	Extra string
 }
 
 const (
@@ -111,6 +117,54 @@ const (
 
 	// Power operator
 	POWER_OP = "**"
+
+	// Bitwise operators
+	BITAND = "&"
+	BITXOR = "^"
+	BITNOT = "~"
+	LSHIFT = "<<"
+	RSHIFT = ">>"
+
+	// Other operators
+	SPACESHIP    = "<=>"
+	FAT_ARROW    = "=>"
+	SAFE_NAV     = "&."
+	DOUBLE_COLON = "::"
+	MATCH        = "=~"
+	NOT_MATCH    = "!~"
+
+	// More compound assignment operators
+	POWER_ASSIGN  = "**="
+	OR_ASSIGN     = "||="
+	AND_ASSIGN    = "&&="
+	NIL_ASSIGN    = "??="
+	BITAND_ASSIGN = "&="
+	BITOR_ASSIGN  = "|="
+	BITXOR_ASSIGN = "^="
+	LSHIFT_ASSIGN = "<<="
+	RSHIFT_ASSIGN = ">>="
+
+	// Variable and literal tokens
+	IVAR   = "IVAR"   // @name
+	CVAR   = "CVAR"   // @@name
+	GVAR   = "GVAR"   // $name
+	SYMBOL = "SYMBOL" // :name
+	REGEX  = "REGEX"  // /pattern/flags
+	WORDS  = "WORDS"  // %w[a b] / %i[a b]
+
+	// More keywords
+	DO     = "DO"
+	THEN   = "THEN"
+	NEXT   = "NEXT"
+	BEGIN  = "BEGIN"
+	RESCUE = "RESCUE"
+	ENSURE = "ENSURE"
+	MODULE = "MODULE"
+	YIELD  = "YIELD"
+	KW_AND = "KW_AND"
+	KW_OR  = "KW_OR"
+	KW_NOT = "KW_NOT"
+	ALIAS  = "ALIAS"
 )
 
 var keywords = map[string]TokenType{
@@ -147,6 +201,18 @@ var keywords = map[string]TokenType{
 	"super":    SUPER,
 	"enum":     ENUM,
 	"const":    CONST,
+	"do":       DO,
+	"then":     THEN,
+	"next":     NEXT,
+	"begin":    BEGIN,
+	"rescue":   RESCUE,
+	"ensure":   ENSURE,
+	"module":   MODULE,
+	"yield":    YIELD,
+	"and":      KW_AND,
+	"or":       KW_OR,
+	"not":      KW_NOT,
+	"alias":    ALIAS,
 }
 
 // LookupIdent checks if the given identifier is a keyword.

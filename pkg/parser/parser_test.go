@@ -323,9 +323,9 @@ func TestNestedArrayLiterals(t *testing.T) {
 
 func TestTypedNestedArrayAssignments(t *testing.T) {
 	tests := []struct {
-		input            string
-		expectedName     string
-		expectedType     string
+		input        string
+		expectedName string
+		expectedType string
 	}{
 		{
 			`matrix: int[][] = [[1, 2], [3, 4]]`,
@@ -1129,10 +1129,10 @@ matrix: [int, int][][] = [
 	}
 
 	tests := []struct {
-		expectedIdentifier string
-		expectedElementCount int
+		expectedIdentifier    string
+		expectedElementCount  int
 		expectedCompoundTypes int
-		isMultiDimensional bool
+		isMultiDimensional    bool
 	}{
 		{"pairs", 3, 2, false},
 		{"coordinates", 3, 2, false},
