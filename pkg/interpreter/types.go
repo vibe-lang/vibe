@@ -56,9 +56,15 @@ func splitTypeArgs(s string) []string {
 	return append(out, strings.TrimSpace(s[start:]))
 }
 
+// typeScope lists the generic type parameters in effect and their optional bounds.
+type typeScope struct {
+	names  []string
+	bounds map[string]ast.Expression
+}
+
 // typeMatches reports whether val satisfies the type expression. Names that are
 // not known types (for example generic type parameters) accept any value.
-func (i *Interpreter) typeMatches(val Object, expr ast.Expression, env *Environment, params []string) bool {
+func (i *Interpreter) typeMatches(val Object, expr ast.Expression, env *Environment, params typeScope) bool {
 	switch t := expr.(type) {
 	case nil:
 		return true
@@ -110,9 +116,12 @@ func (i *Interpreter) typeMatches(val Object, expr ast.Expression, env *Environm
 	return true
 }
 
-func (i *Interpreter) typeNameMatches(val Object, name string, env *Environment, params []string) bool {
-	for _, p := range params {
+func (i *Interpreter) typeNameMatches(val Object, name string, env *Environment, params typeScope) bool {
+	for _, p := range params.names {
 		if p == name {
+			if bound := params.bounds[name]; bound != nil {
+				return i.typeMatches(val, bound, env, typeScope{})
+			}
 			return true
 		}
 	}
@@ -239,7 +248,7 @@ func (i *Interpreter) checkParamType(fn *Function, idx int, val Object, env *Env
 	if idx >= len(fn.ParamTypes) || fn.ParamTypes[idx] == nil {
 		return nil
 	}
-	if !i.typeMatches(val, fn.ParamTypes[idx], env, fn.TypeParams) {
+	if !i.typeMatches(val, fn.ParamTypes[idx], env, fn.typeScope()) {
 		return newErrorClass("TypeError", "type mismatch for parameter '%s': expected %s, got %s",
 			fn.Parameters[idx].Value, fn.ParamTypes[idx].String(), i.typeLabel(val))
 	}
@@ -250,9 +259,26 @@ func (i *Interpreter) checkReturnType(fn *Function, val Object, env *Environment
 	if fn.ReturnType == nil || fn.IsBlock || fn.Name == "initialize" {
 		return nil
 	}
-	if !i.typeMatches(val, fn.ReturnType, env, fn.TypeParams) {
+	if !i.typeMatches(val, fn.ReturnType, env, fn.typeScope()) {
 		return newErrorClass("TypeError", "type mismatch: %s must return %s, got %s",
 			fn.Name, fn.ReturnType.String(), i.typeLabel(val))
 	}
 	return nil
+}
+
+// typeScope returns the type parameters visible inside fn: its own plus those of the enclosing generic class.
+func (fn *Function) typeScope() typeScope {
+	scope := typeScope{names: fn.TypeParams, bounds: fn.TypeBounds}
+	if fn.Generics == nil || len(fn.Generics.TypeParams) == 0 {
+		return scope
+	}
+	scope.names = append(append([]string{}, fn.TypeParams...), fn.Generics.TypeParams...)
+	scope.bounds = map[string]ast.Expression{}
+	for k, v := range fn.Generics.TypeBounds {
+		scope.bounds[k] = v
+	}
+	for k, v := range fn.TypeBounds {
+		scope.bounds[k] = v
+	}
+	return scope
 }

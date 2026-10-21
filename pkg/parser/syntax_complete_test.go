@@ -17,6 +17,8 @@ func TestParsesSyntaxForms(t *testing.T) {
 		name  string
 		input string
 	}{
+		{"generic function bound", "def f<T: Comparable>(a: T): T\n a\nend"},
+		{"generic class bound", "class Box<T: Numeric, U: int | string>\nend"},
 		{"class with parent and attrs", "class A < B\n attr_accessor :x, :y\n def initialize(x)\n @x = x\n end\nend"},
 		{"module with module_function", "module M\n def self.f\n 1\n end\nend"},
 		{"block with params", "[1, 2].each { |x| puts(x) }"},

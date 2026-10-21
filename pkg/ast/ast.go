@@ -255,19 +255,20 @@ func (nl *NilLiteral) String() string       { return "nil" }
 // typed or untyped parameters, and can specify a return type.
 // They can also have type parameters for generics.
 type FunctionLiteral struct {
-	KwRest        *Identifier     // trailing **opts parameter, or nil
-	Keyword       []bool          // parallel to Parameters: true for keyword parameters (name: / name: default)
-	Token         lexer.Token     // The 'fn' or 'def' token
-	Receiver      *Identifier     // Receiver of a singleton definition (def self.name), or nil
-	BlockParam    *Identifier     // Name of a trailing &block parameter, or nil
-	Name          *Identifier     // Optional function name (can be nil for anonymous functions)
-	TypeParams    []string        // Generic type parameters (e.g., ["T", "U"])
-	Parameters    []*Identifier   // Parameters (can be empty)
-	ParamTypes    []Expression    // Parameter type annotations (can be nil for untyped parameters)
-	ParamDefaults []Expression    // Default values for parameters (can be nil for required parameters)
-	ReturnType    Expression      // Return type annotation (can be nil)
-	Variadic      bool            // Whether the last parameter is variadic (*args)
-	Body          *BlockStatement // Function body
+	KwRest        *Identifier           // trailing **opts parameter, or nil
+	Keyword       []bool                // parallel to Parameters: true for keyword parameters (name: / name: default)
+	Token         lexer.Token           // The 'fn' or 'def' token
+	Receiver      *Identifier           // Receiver of a singleton definition (def self.name), or nil
+	BlockParam    *Identifier           // Name of a trailing &block parameter, or nil
+	Name          *Identifier           // Optional function name (can be nil for anonymous functions)
+	TypeParams    []string              // Generic type parameters (e.g., ["T", "U"])
+	TypeBounds    map[string]Expression // Constraints from `<T: Bound>`
+	Parameters    []*Identifier         // Parameters (can be empty)
+	ParamTypes    []Expression          // Parameter type annotations (can be nil for untyped parameters)
+	ParamDefaults []Expression          // Default values for parameters (can be nil for required parameters)
+	ReturnType    Expression            // Return type annotation (can be nil)
+	Variadic      bool                  // Whether the last parameter is variadic (*args)
+	Body          *BlockStatement       // Function body
 }
 
 func (fl *FunctionLiteral) expressionNode()      {}
@@ -336,13 +337,14 @@ func (fl *FunctionLiteral) String() string {
 // for properties and methods, providing better type safety.
 // They can also have type parameters for generics.
 type ClassLiteral struct {
-	IsModule   bool            // true for `module Name ... end`
-	Token      lexer.Token     // the 'class' token
-	Name       *Identifier     // The class name
-	TypeParams []string        // Generic type parameters (e.g., ["T", "U"])
-	Parent     *Identifier     // Optional parent class (for inheritance with <)
-	Implements []string        // Interfaces named by `implements A, B`
-	Body       *BlockStatement // Class body containing properties and methods
+	IsModule   bool                  // true for `module Name ... end`
+	Token      lexer.Token           // the 'class' token
+	Name       *Identifier           // The class name
+	TypeParams []string              // Generic type parameters (e.g., ["T", "U"])
+	TypeBounds map[string]Expression // Constraints from `<T: Bound>`
+	Parent     *Identifier           // Optional parent class (for inheritance with <)
+	Implements []string              // Interfaces named by `implements A, B`
+	Body       *BlockStatement       // Class body containing properties and methods
 }
 
 func (cl *ClassLiteral) expressionNode()      {}
@@ -598,10 +600,11 @@ func (al *ArrayLiteral) String() string {
 //	  second: B
 //	end
 type StructStatement struct {
-	Token      lexer.Token // The 'struct' token
-	Name       *Identifier // Name of the struct
-	TypeParams []string    // Generic type parameters (e.g., ["A", "B"])
-	Fields     []Statement // Fields defined in the struct
+	Token      lexer.Token           // The 'struct' token
+	Name       *Identifier           // Name of the struct
+	TypeParams []string              // Generic type parameters (e.g., ["A", "B"])
+	TypeBounds map[string]Expression // Constraints from `<T: Bound>`
+	Fields     []Statement           // Fields defined in the struct
 }
 
 func (ss *StructStatement) statementNode()       {}

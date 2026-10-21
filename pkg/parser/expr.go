@@ -1012,14 +1012,28 @@ func (p *Parser) tryTypeArgs() ([]string, bool) {
 }
 
 // parseTypeParams parses `<T, U>` after a declaration name; the peek token is `<`.
-func (p *Parser) parseTypeParams() []string {
+func (p *Parser) parseTypeParams() ([]string, map[string]ast.Expression) {
 	p.nextToken()
 	var params []string
+	var bounds map[string]ast.Expression
 	for {
 		if !p.expectPeek(lexer.IDENT) {
-			return nil
+			return nil, nil
 		}
-		params = append(params, p.curToken.Literal)
+		name := p.curToken.Literal
+		params = append(params, name)
+		if p.peekTokenIs(lexer.COLON) {
+			p.nextToken()
+			p.nextToken()
+			bound := p.parseType()
+			if bound == nil {
+				return nil, nil
+			}
+			if bounds == nil {
+				bounds = map[string]ast.Expression{}
+			}
+			bounds[name] = bound
+		}
 		if p.peekTokenIs(lexer.COMMA) {
 			p.nextToken()
 			continue
@@ -1027,9 +1041,9 @@ func (p *Parser) parseTypeParams() []string {
 		break
 	}
 	if !p.expectGT() {
-		return nil
+		return nil, nil
 	}
-	return params
+	return params, bounds
 }
 
 // --- types -----------------------------------------------------------------

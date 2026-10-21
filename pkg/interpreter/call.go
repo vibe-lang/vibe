@@ -337,32 +337,31 @@ func (i *Interpreter) bindParams(fn *Function, args []Object, env *Environment, 
 			required++
 		}
 	}
-	if !fn.IsBlock && kw == nil && len(args) > 0 && len(args) <= required && variadicIdx < 0 {
-		if h, ok := args[len(args)-1].(*Hash); ok && h.IsKw {
-			named := map[string]bool{}
+	named := map[string]Object{}
+	if !fn.IsBlock && kw == nil && len(args) > 0 {
+		if h, ok := args[len(args)-1].(*Hash); ok && h.IsKw && len(h.Order) > 0 && (variadicIdx >= 0 || len(args)-1 < len(positional)) {
+			byName := map[string]int{}
 			for _, idx := range positional {
-				named[fn.Parameters[idx].Value] = true
+				if idx != variadicIdx {
+					byName[fn.Parameters[idx].Value] = idx
+				}
 			}
 			all := true
 			for _, k := range h.Order {
-				if !named[k] {
+				if _, ok := byName[k]; !ok {
 					all = false
 				}
 			}
 			if all {
-				rest := append([]Object{}, args[:len(args)-1]...)
-				for n, idx := range positional {
-					if n < len(rest) {
-						continue
-					}
-					if v, ok := h.Pairs[fn.Parameters[idx].Value]; ok {
-						rest = append(rest, v)
+				args = args[:len(args)-1]
+				for _, k := range h.Order {
+					named[k] = h.Pairs[k]
+					idx := byName[k]
+					if idx < len(fn.Defaults) && fn.Defaults[idx] != nil {
+						optional--
 					} else {
-						break
+						required--
 					}
-				}
-				if len(rest) >= required {
-					args = rest
 				}
 			}
 		}
@@ -396,6 +395,10 @@ func (i *Interpreter) bindParams(fn *Function, args []Object, env *Environment, 
 			continue
 		}
 		hasDefault := idx < len(fn.Defaults) && fn.Defaults[idx] != nil
+		if v, ok := named[name]; ok {
+			env.Set(name, v)
+			continue
+		}
 		switch {
 		case hasDefault && optAvail <= 0:
 			v, err := i.evalIn(env, fn.Defaults[idx])

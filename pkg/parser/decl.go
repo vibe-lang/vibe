@@ -259,7 +259,7 @@ func (p *Parser) parseFunctionLiteral() ast.Expression {
 		lit.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	}
 	if p.peekTokenIs(lexer.LT) && !p.peekToken.SpaceBefore {
-		if lit.TypeParams = p.parseTypeParams(); lit.TypeParams == nil {
+		if lit.TypeParams, lit.TypeBounds = p.parseTypeParams(); lit.TypeParams == nil {
 			return nil
 		}
 	}
@@ -382,7 +382,7 @@ func (p *Parser) parseDef() ast.Expression {
 	defer p.popCtx()
 
 	if p.peekTokenIs(lexer.LT) && !p.peekToken.SpaceBefore {
-		if lit.TypeParams = p.parseTypeParams(); lit.TypeParams == nil {
+		if lit.TypeParams, lit.TypeBounds = p.parseTypeParams(); lit.TypeParams == nil {
 			return nil
 		}
 	}
@@ -558,8 +558,8 @@ func (p *Parser) parseClassLiteral(module bool) ast.Expression {
 	lit.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	if p.peekTokenIs(lexer.LT) && p.peekPeekTokenIs(lexer.IDENT) {
 		third := p.tok(p.pos + 3).Type
-		if third == lexer.GT || third == lexer.COMMA || third == lexer.RSHIFT {
-			if lit.TypeParams = p.parseTypeParams(); lit.TypeParams == nil {
+		if third == lexer.GT || third == lexer.COMMA || third == lexer.RSHIFT || third == lexer.COLON {
+			if lit.TypeParams, lit.TypeBounds = p.parseTypeParams(); lit.TypeParams == nil {
 				return nil
 			}
 		}
@@ -609,7 +609,7 @@ func (p *Parser) parseStructStatement() ast.Statement {
 	}
 	stmt.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	if p.peekTokenIs(lexer.LT) {
-		if stmt.TypeParams = p.parseTypeParams(); stmt.TypeParams == nil {
+		if stmt.TypeParams, stmt.TypeBounds = p.parseTypeParams(); stmt.TypeParams == nil {
 			return nil
 		}
 	}

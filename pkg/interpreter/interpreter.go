@@ -624,7 +624,7 @@ func (i *Interpreter) evalAssignmentExpression(node *ast.AssignmentExpression) O
 		return val
 	}
 
-	if node.TypeAnnotation != nil && !i.typeMatches(val, node.TypeAnnotation, i.env, nil) {
+	if node.TypeAnnotation != nil && !i.typeMatches(val, node.TypeAnnotation, i.env, typeScope{}) {
 		return newErrorClass("TypeError", "type mismatch: expected %s, got %s", node.TypeAnnotation.String(), i.typeLabel(val))
 	}
 
@@ -1126,6 +1126,7 @@ func isTruthy(obj Object) bool {
 type ClassObject struct {
 	Name       string
 	TypeParams []string // Generic type parameters (e.g., ["T", "U"])
+	TypeBounds map[string]ast.Expression
 	Parent     *ClassObject
 	Methods    map[string]*Function
 	IsModule   bool
@@ -1179,7 +1180,9 @@ type Function struct {
 	Body       *ast.BlockStatement
 	Env        *Environment
 	Name       string
-	TypeParams []string         // Generic type parameters (e.g., ["T", "U"])
+	TypeParams []string // Generic type parameters (e.g., ["T", "U"])
+	TypeBounds map[string]ast.Expression
+	Generics   *ClassObject     // enclosing generic class whose type parameters are in scope
 	ParamTypes []ast.Expression // Parameter type annotations for type checking
 	ReturnType ast.Expression   // Return type annotation
 	Variadic   bool             // Whether the last parameter is variadic (*args)

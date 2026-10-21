@@ -655,3 +655,6 @@ Annotations are enforced at run time, which is how Vibe brings types to Ruby-sty
 - Generic parameters (`def f<T>(a: T): T`, `class Box<T>`) accept any value; `Box<int>.new(3)` is allowed.
 - Typed properties: `attr_accessor name: string, age: int` (also `attr_reader`/`attr_writer`) type-checks the setter.
 - `class Circle implements Shape, Drawable` verifies when the class is defined that every interface method exists.
+- Generic constraints: `def max<T: Comparable>(a: T, b: T): T` and `class Box<T: Numeric>` reject values that do not satisfy the bound; the bound can be any type, including unions.
+- Typed parameters with defaults can be passed by name: `def f(k: int = 1)` accepts `f(k: 3)`.
+- Typed properties are also checked when assigned through `@name = value`.

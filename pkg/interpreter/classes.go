@@ -171,6 +171,7 @@ func (i *Interpreter) newFunction(node *ast.FunctionLiteral) *Function {
 		Body:       node.Body,
 		Env:        i.env,
 		TypeParams: node.TypeParams,
+		TypeBounds: node.TypeBounds,
 		ParamTypes: node.ParamTypes,
 		ReturnType: node.ReturnType,
 		Variadic:   node.Variadic,
@@ -191,6 +192,9 @@ func (i *Interpreter) evalFunctionLiteral(node *ast.FunctionLiteral) Object {
 	if dc, ok := i.env.GetLocal("__defclass__"); ok {
 		class := dc.(*ClassObject)
 		singleton := node.Receiver != nil
+		if !singleton {
+			fn.Generics = class
+		}
 		moduleFn := false
 		if mf, ok := i.env.GetLocal("__module_function__"); ok {
 			moduleFn = mf == Object(&Boolean{Value: true}) || isTruthy(mf)
@@ -238,6 +242,7 @@ func (i *Interpreter) evalClassLiteral(node *ast.ClassLiteral) Object {
 		classObj = newClassObject(name)
 		classObj.IsModule = node.IsModule
 		classObj.TypeParams = node.TypeParams
+		classObj.TypeBounds = node.TypeBounds
 	}
 
 	if node.Parent != nil {
@@ -336,14 +341,22 @@ func (c *ClassObject) defineAccessor(field string, reader, writer bool) {
 			if inst.Frozen {
 				return newError("can't modify frozen %s", inst.Class.Name)
 			}
-			if t := c.propType(field); t != nil && !i.typeMatches(args[0], t, i.env, c.TypeParams) {
-				return newErrorClass("TypeError", "type mismatch for property '%s': expected %s, got %s",
-					field, t.String(), i.typeLabel(args[0]))
+			if err := i.checkPropType(c, field, args[0]); err != nil {
+				return err
 			}
 			inst.Fields[field] = args[0]
 			return args[0]
 		}
 	}
+}
+
+func (i *Interpreter) checkPropType(c *ClassObject, field string, v Object) *Error {
+	t := c.propType(field)
+	if t == nil || i.typeMatches(v, t, i.env, typeScope{c.TypeParams, c.TypeBounds}) {
+		return nil
+	}
+	return newErrorClass("TypeError", "type mismatch for property '%s': expected %s, got %s",
+		field, t.String(), i.typeLabel(v))
 }
 
 func (c *ClassObject) propType(field string) ast.Expression {
@@ -1095,6 +1108,9 @@ func (i *Interpreter) setIvar(name string, v Object) Object {
 	case *ClassInstance:
 		if s.Frozen {
 			return newError("can't modify frozen %s", s.Class.Name)
+		}
+		if err := i.checkPropType(s.Class, name, v); err != nil {
+			return err
 		}
 		s.Fields[name] = v
 	case *ClassObject:
