@@ -502,7 +502,7 @@ func TestBuiltinMapFilter(t *testing.T) {
 
 	t.Run("filter with function", func(t *testing.T) {
 		result := evalInput(t, `
-		def is_even(x: int): int
+		def is_even(x: int): boolean
 			x % 2 == 0
 		end
 		arr = filter([1, 2, 3, 4, 5, 6], is_even)

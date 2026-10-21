@@ -15,6 +15,9 @@ var keywords = []string{
 	"class", "struct", "enum", "prop",
 	"try", "catch", "throw", "finally",
 	"import", "self", "super",
+	"module", "begin", "rescue", "ensure", "retry", "raise", "yield", "next", "redo",
+	"then", "do", "loop", "include", "extend", "alias", "and", "or", "not",
+	"private", "protected", "public",
 	"true", "false", "nil",
 }
 
